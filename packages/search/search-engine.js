@@ -1,4 +1,5 @@
 import { PromptInjectionGuard } from "../safety/index.js";
+import { analyzeFreshness } from "../freshness/index.js";
 
 const AUTHORITY_HOSTS = [
   "docs.", "developer.", "learn.microsoft.com", "nodejs.org", "python.org", "openai.com",
@@ -23,7 +24,9 @@ export class SearchEngine {
     const normalized = normalizeWhitespace(query);
     const queries = [
       { query: normalized, intent: "direct" },
-      { query: `${normalized} official`, intent: "authoritative" },
+      { query: `${normalized} official source`, intent: "authoritative" },
+      { query: `${normalized} ${new Date().getFullYear()}`, intent: "freshness" },
+      { query: `${normalized} site:.gov OR site:.edu OR site:who.int OR site:whitehouse.gov`, intent: "primary-source" },
       { query: `${normalized} documentation source`, intent: "documentation" }
     ];
     return dedupeQueries(queries).slice(0, maxQueries);
@@ -31,7 +34,8 @@ export class SearchEngine {
 
   async search(query, { limit = 5, maxQueries = 3 } = {}) {
     this.stats.searches++;
-    const cacheKey = `search:${detectProvider()}:${query}:${limit}:${maxQueries}`;
+    const freshness = analyzeFreshness(query, { taskType: "research" });
+    const cacheKey = `search:${detectProvider()}:${freshness.searchDepth}:${query}:${limit}:${maxQueries}`;
     const cached = this.#getCache(cacheKey);
     if (cached) return { ...cached, cached: true };
 
@@ -46,7 +50,7 @@ export class SearchEngine {
         results: [],
         guidance: "Set DUCKDUCKGO_SEARCH_FALLBACK=true for Jarvis keyless search, or add an optional search connector key."
       };
-      this.#setCache(cacheKey, result);
+      this.#setCache(cacheKey, result, freshness.maxAgeMs);
       return result;
     }
 
@@ -63,7 +67,7 @@ export class SearchEngine {
       plan,
       results
     };
-    this.#setCache(cacheKey, result);
+    this.#setCache(cacheKey, result, freshness.maxAgeMs);
     return result;
   }
 
@@ -167,7 +171,7 @@ export class SearchEngine {
       this.stats.misses++;
       return null;
     }
-    if (Date.now() - item.createdAt > this.cacheTtlMs) {
+    if (Date.now() - item.createdAt > (item.ttlMs || this.cacheTtlMs)) {
       this.cache.delete(key);
       this.stats.misses++;
       return null;
@@ -176,9 +180,10 @@ export class SearchEngine {
     return item.value;
   }
 
-  #setCache(key, value) {
+  #setCache(key, value, ttlMs = this.cacheTtlMs) {
     this.cache.set(key, {
       createdAt: Date.now(),
+      ttlMs,
       value
     });
   }
@@ -280,6 +285,17 @@ async function tavilySearch(query, limit, fetchImpl) {
 }
 
 async function duckDuckGoSearch(query, limit, fetchImpl) {
+  const [instantResults, htmlResults] = await Promise.allSettled([
+    duckDuckGoInstantSearch(query, limit, fetchImpl),
+    duckDuckGoHtmlSearch(query, limit, fetchImpl)
+  ]);
+  return [
+    ...(instantResults.status === "fulfilled" ? instantResults.value : []),
+    ...(htmlResults.status === "fulfilled" ? htmlResults.value : [])
+  ].slice(0, limit);
+}
+
+async function duckDuckGoInstantSearch(query, limit, fetchImpl) {
   const url = new URL("https://api.duckduckgo.com/");
   url.searchParams.set("q", query);
   url.searchParams.set("format", "json");
@@ -307,6 +323,37 @@ async function duckDuckGoSearch(query, limit, fetchImpl) {
     });
   }
   return results.slice(0, limit);
+}
+
+async function duckDuckGoHtmlSearch(query, limit, fetchImpl) {
+  const url = new URL("https://html.duckduckgo.com/html/");
+  url.searchParams.set("q", query);
+  const response = await fetchImpl(url, {
+    headers: {
+      accept: "text/html,application/xhtml+xml",
+      "user-agent": "Mozilla/5.0 JarvisAIPlatform/0.1 research search"
+    }
+  });
+  if (!response.ok) throw new Error(`DuckDuckGo HTML search failed: ${response.status} ${await response.text()}`);
+  const html = await response.text();
+  const blocks = html.match(/<div class="result[\s\S]*?(?=<div class="result|\n\s*<\/div>\s*<\/div>\s*<\/div>|<\/body>)/g) || [];
+  const results = [];
+  for (const block of blocks) {
+    const titleMatch = block.match(/<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+    if (!titleMatch) continue;
+    const snippetMatch = block.match(/<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i)
+      || block.match(/<div[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/div>/i);
+    const url = resolveDuckDuckGoUrl(decodeEntity(titleMatch[1]));
+    if (!url || !/^https?:\/\//i.test(url)) continue;
+    results.push({
+      title: stripHtml(titleMatch[2]),
+      url,
+      description: snippetMatch ? stripHtml(snippetMatch[1]) : "",
+      raw_provider: "duckduckgo-html"
+    });
+    if (results.length >= limit) break;
+  }
+  return results;
 }
 
 function flattenRelatedTopics(items) {
@@ -380,13 +427,38 @@ function extractReadableText(body) {
 }
 
 function stripHtml(value = "") {
-  return normalizeWhitespace(String(value)
+  return normalizeWhitespace(decodeEntity(String(value)
     .replace(/<[^>]+>/g, " ")
+  ));
+}
+
+function decodeEntity(value = "") {
+  return String(value)
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&#0*39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&nbsp;/g, " ")
     .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">"));
+    .replace(/&gt;/g, ">")
+    .replace(/&#(\d+);/g, (_, code) => {
+      try {
+        return String.fromCodePoint(Number(code));
+      } catch {
+        return "";
+      }
+    });
+}
+
+function resolveDuckDuckGoUrl(url) {
+  try {
+    const parsed = new URL(url, "https://duckduckgo.com");
+    const uddg = parsed.searchParams.get("uddg");
+    return uddg ? decodeURIComponent(uddg) : parsed.href;
+  } catch {
+    return "";
+  }
 }
 
 function normalizeWhitespace(value = "") {

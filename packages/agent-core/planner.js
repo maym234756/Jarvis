@@ -1,12 +1,18 @@
+import { requiresFreshResearch as messageRequiresFreshResearch } from "../freshness/index.js";
+
 export function classifyTask(message, mode = "agent") {
   const text = message.toLowerCase();
-  if (mode === "research" || /\b(search|research|look up|current|latest|source|cite)\b/.test(text)) return "research";
+  if (mode === "research" || requiresFreshResearch(message) || /\b(search|research|look up|current|latest|source|cite)\b/.test(text)) return "research";
   if (mode === "code" || /\b(code|test|bug|fix|repo|file|function|api|build)\b/.test(text)) return "coding";
   if (/\b(error|failing|stack trace|debug)\b/.test(text)) return "debug";
   if (/\b(ingest|chunk|index|document|memory)\b/.test(text)) return "ingestion";
   if (/\b(download|iso|installer|os image)\b/.test(text)) return "os-download";
   if (/\b(security|threat|permission|audit|secret)\b/.test(text)) return "security";
   return "chat";
+}
+
+export function requiresFreshResearch(message = "") {
+  return messageRequiresFreshResearch(message);
 }
 
 export function createPlan(message, taskType) {
@@ -141,6 +147,15 @@ export function parseToolIntent(message) {
 
   match = text.match(/^(?:connectors|connector list)$/i);
   if (match) return { tool: "connector.list", args: {} };
+
+  match = text.match(/^(?:salesforce|sf)\s+status$/i);
+  if (match) return { tool: "salesforce.status", args: {} };
+
+  match = text.match(/^(?:salesforce|sf)\s+describe\s+([A-Za-z][A-Za-z0-9_]*(?:__(?:c|x|mdt|e|b))?)$/i);
+  if (match) return { tool: "salesforce.describe", args: { object: match[1].trim() } };
+
+  match = text.match(/^(?:salesforce|sf)\s+query\s+([\s\S]+)$/i);
+  if (match) return { tool: "salesforce.query", args: { soql: match[1].trim() } };
 
   match = text.match(/^connector add\s+([a-z0-9._-]+)\s+(\S+)(?:\s+(.+))?$/i);
   if (match) return { tool: "connector.add", args: { id: match[1].trim(), url: match[2].trim(), name: match[3]?.trim() || match[1].trim() } };

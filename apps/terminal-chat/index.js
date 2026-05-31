@@ -198,6 +198,9 @@ Natural tool prompts
   search <query>
   ingest <path>
   research <query>
+  salesforce status
+  salesforce describe Account
+  salesforce query SELECT Id, Name FROM Account LIMIT 5
 `);
 }
 
@@ -381,7 +384,8 @@ async function handleSlashCommand(line) {
   if (command === "connectors") {
     console.log(JSON.stringify({
       status: await connectorRegistry.status(),
-      connectors: await connectorRegistry.listConnectors()
+      connectors: await connectorRegistry.listConnectors(),
+      accountConnectors: connectorRegistry.discoverAccountConnectors()
     }, null, 2));
     return true;
   }

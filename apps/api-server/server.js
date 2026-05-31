@@ -156,7 +156,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/connectors") {
-      send(res, 200, { ok: true, status: await connectorRegistry.status(), connectors: await connectorRegistry.listConnectors() });
+      send(res, 200, { ok: true, status: await connectorRegistry.status(), connectors: await connectorRegistry.listConnectors(), accountConnectors: connectorRegistry.discoverAccountConnectors() });
       return;
     }
 

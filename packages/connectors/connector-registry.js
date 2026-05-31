@@ -25,6 +25,9 @@ export class ConnectorRegistry {
       enabled: input.enabled !== false,
       toolFilter: Array.isArray(input.toolFilter) ? input.toolFilter : [],
       permissionPolicy: input.permissionPolicy || "approval-required",
+      authType: input.authType || "none",
+      scopes: Array.isArray(input.scopes) ? input.scopes : [],
+      dataClassification: input.dataClassification || "internal",
       notes: input.notes || "",
       created_at: input.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -94,8 +97,23 @@ export class ConnectorRegistry {
       count: connectors.length,
       enabled: connectors.filter((item) => item.enabled).length,
       disabled: connectors.filter((item) => !item.enabled).length,
-      types: countBy(connectors.map((item) => item.type))
+      types: countBy(connectors.map((item) => item.type)),
+      accountConnectors: this.discoverAccountConnectors()
     };
+  }
+
+  discoverAccountConnectors() {
+    return [
+      {
+        id: "salesforce",
+        name: "Salesforce",
+        type: "crm",
+        configured: Boolean(process.env.SALESFORCE_INSTANCE_URL && process.env.SALESFORCE_ACCESS_TOKEN),
+        authType: process.env.SALESFORCE_ACCESS_TOKEN ? "oauth-access-token" : "missing",
+        instanceUrl: process.env.SALESFORCE_INSTANCE_URL || null,
+        permissionModel: "Authenticated user's Salesforce object permissions, field-level security, and sharing rules."
+      }
+    ];
   }
 
   async #read() {

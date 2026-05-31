@@ -71,6 +71,16 @@ export class CapabilityBus {
         simulationSupported: false
       };
     }
+    if (toolName?.startsWith("salesforce.")) {
+      return {
+        ...base,
+        preconditions: ["salesforce_connector_configured", "authenticated_user_permissions_enforced", "approval_if_account_data_access"],
+        postconditions: ["salesforce_response_recorded", "secrets_redacted", "audit_event_recorded"],
+        rollback: "read_only_queries_do_not_mutate_salesforce",
+        sandboxable: false,
+        simulationSupported: toolName !== "salesforce.query"
+      };
+    }
     return base;
   }
 
@@ -112,5 +122,6 @@ function expectedEffects(toolName, args, riskLevel) {
   if (toolName === "file.write") return [`writes_workspace_file:${args.path || "unknown"}`];
   if (toolName === "memory.ingest") return [`indexes_path:${args.path || "."}`];
   if (toolName === "connector.add") return ["updates_connector_registry"];
+  if (toolName?.startsWith("salesforce.")) return ["reads_salesforce_account_data_with_authenticated_user_permissions"];
   return ["read_or_compute_without_direct_side_effects"];
 }

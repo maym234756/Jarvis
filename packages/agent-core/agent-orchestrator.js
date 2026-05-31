@@ -3,6 +3,7 @@ import { ReasoningEngine } from "../reasoning/index.js";
 import { resolveRuntimeProfile } from "../runtime/index.js";
 import { VerificationEngine } from "../verification/index.js";
 import { chooseResponseMode } from "../response/index.js";
+import { composeGroundedAnswer } from "../answers/index.js";
 
 export class AgentOrchestrator {
   constructor({ projectRoot, modelRouter, toolRegistry, memoryStore, workflowEngine, runStore, sessionStore, reasoningEngine, verificationEngine, preferenceStore, contextBudgetManager, feedbackStore, modelMesh, eventBus, workflowStateStore, artifactStore, riskScorer, policyDecisionPoint, runLedger }) {
@@ -141,7 +142,8 @@ export class AgentOrchestrator {
         const result = await this.toolRegistry.execute(intent.tool, intent.args, {
           projectRoot: this.projectRoot,
           mode: context.mode,
-          privacyLevel: context.privacyLevel
+          privacyLevel: context.privacyLevel,
+          autoApproveReadOnlyNetwork: isReadOnlyResearchTool(intent.tool)
         });
         toolResults.push(result);
         await this.eventBus?.publish(result.pendingApproval ? "approval.requested" : "tool.completed", {
@@ -157,10 +159,11 @@ export class AgentOrchestrator {
         }
         await this.eventBus?.publish("tool.called", { runId: run?.id || null, tool: "research.run", args: { query: message } });
         await this.runLedger?.appendEvent(run?.id, "tool.called", { tool: "research.run", args: { query: message } });
-        const result = await this.toolRegistry.execute("research.run", { query: message, limit: 5, maxSources: 3 }, {
+        const result = await this.toolRegistry.execute("research.run", { query: message, limit: 8, maxQueries: 5, maxSources: 5 }, {
           projectRoot: this.projectRoot,
           mode: context.mode,
-          privacyLevel: context.privacyLevel
+          privacyLevel: context.privacyLevel,
+          autoApproveReadOnlyNetwork: true
         });
         toolResults.push(result);
         await this.eventBus?.publish(result.pendingApproval ? "approval.requested" : "tool.completed", {
@@ -209,7 +212,7 @@ export class AgentOrchestrator {
         toolResults
       }) : null;
 
-      answer = await this.modelRouter.generate({
+      const answerRequest = {
         message,
         taskType,
         plan,
@@ -227,7 +230,9 @@ export class AgentOrchestrator {
         sessionHistory: context.sessionHistory || [],
         sessionSummary: context.sessionSummary || "",
         privacyLevel: context.privacyLevel || "project"
-      });
+      };
+
+      answer = composeGroundedAnswer(answerRequest) || await this.modelRouter.generate(answerRequest);
 
       if (this.sessionStore && context.sessionId) {
         await this.sessionStore.appendMessage(context.sessionId, {
@@ -391,4 +396,8 @@ function summarizeToolResult(result = {}) {
     error: result.error,
     duration_ms: result.duration_ms
   };
+}
+
+function isReadOnlyResearchTool(toolName) {
+  return toolName === "search.web" || toolName === "research.run";
 }

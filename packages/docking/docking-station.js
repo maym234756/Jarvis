@@ -58,6 +58,7 @@ export class BackendDockingStation {
     const runStats = this.runStore ? await this.runStore.stats() : null;
     const sessions = this.sessionStore ? await this.sessionStore.listSessions({ limit: 1000 }) : [];
     const connectorStatus = this.connectorRegistry ? await this.connectorRegistry.status() : null;
+    const accountConnectors = this.connectorRegistry?.discoverAccountConnectors ? this.connectorRegistry.discoverAccountConnectors() : [];
     const preferenceStats = this.preferenceStore ? await this.preferenceStore.stats() : null;
     const repoMap = this.repoIntelligence ? await this.repoIntelligence.buildMap({ maxFiles: 250 }) : null;
     const feedbackSummary = this.feedbackStore ? await this.feedbackStore.summary() : null;
@@ -352,8 +353,21 @@ export class BackendDockingStation {
         status: this.connectorRegistry ? "online" : "offline",
         health: this.connectorRegistry ? "ok" : "warn",
         endpoint: path.join(this.projectRoot, ".jarvis", "connectors", "connectors.json"),
-        capabilities: ["mcp-style-connectors", "endpoint-health", "permission-policy", "tool-filters"],
-        details: connectorStatus || {}
+        capabilities: ["mcp-style-connectors", "endpoint-health", "permission-policy", "tool-filters", "account-connectors"],
+        details: connectorStatus ? { ...connectorStatus, accountConnectors } : { accountConnectors }
+      }),
+      dock({
+        id: "connector.salesforce",
+        name: "Salesforce Account Connector",
+        type: "connectors",
+        optional: true,
+        configured: Boolean(process.env.SALESFORCE_INSTANCE_URL && process.env.SALESFORCE_ACCESS_TOKEN),
+        status: process.env.SALESFORCE_INSTANCE_URL && process.env.SALESFORCE_ACCESS_TOKEN ? "configured" : "optional",
+        health: "ok",
+        configKeys: ["SALESFORCE_INSTANCE_URL", "SALESFORCE_ACCESS_TOKEN", "SALESFORCE_API_VERSION"],
+        capabilities: ["crm-account", "soql-read-only", "object-describe", "user-permission-scoped"],
+        guidance: "Optional account connector. Salesforce itself enforces the authenticated user's object permissions, field-level security, and sharing rules.",
+        details: accountConnectors.find((item) => item.id === "salesforce") || {}
       }),
       dock({
         id: "capabilities.bus",
@@ -516,6 +530,7 @@ export class BackendDockingStation {
     if (id === "memory.local-jsonl") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.chunks || 0} chunk(s) available.` };
     if (id === "metrics.local-jsonl") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.totalEvents || 0} metric event(s) recorded.` };
     if (id === "connectors.registry") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.count || 0} connector(s), ${target.details.enabled || 0} enabled.` };
+    if (id === "connector.salesforce") return { ok: true, id, status: target.status, message: target.configured ? "Salesforce connector is configured." : "Salesforce connector is optional and not configured." };
     if (id === "capabilities.bus") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.contracts || 0} capability contract(s).` };
     if (id === "preferences.local-json") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.active || 0} active preference(s).` };
     if (id === "repo.intelligence") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.summary?.files || 0} mapped file(s), ${target.details.summary?.codeFiles || 0} code file(s).` };

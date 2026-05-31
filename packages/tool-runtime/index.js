@@ -23,6 +23,7 @@ import { ArtifactListTool } from "./tools/artifact-tool.js";
 import { RiskScoreTool, FailureClassifyTool } from "./tools/risk-tool.js";
 import { PolicyDecisionTool } from "./tools/policy-decision-tool.js";
 import { RunLedgerListTool, RunReplayTool } from "./tools/run-ledger-tool.js";
+import { SalesforceDescribeObjectTool, SalesforceQueryTool, SalesforceStatusTool } from "./tools/salesforce-tool.js";
 import { classifyFailure } from "../risk/index.js";
 
 export function createDefaultToolRegistry({ projectRoot, memoryStore, approvalProvider, searchEngine, metricsStore, connectorRegistry, preferenceStore, repoIntelligence, capabilityBus, environmentInspector, contextBudgetManager, feedbackStore, modelMesh, controlPlane, eventBus, policyStore, workflowStateStore, artifactStore, riskScorer, policyDecisionPoint, runLedger } = {}) {
@@ -94,6 +95,9 @@ export function createDefaultToolRegistry({ projectRoot, memoryStore, approvalPr
     registry.register(new RunLedgerListTool(runLedger));
     registry.register(new RunReplayTool(runLedger));
   }
+  registry.register(new SalesforceStatusTool());
+  registry.register(new SalesforceDescribeObjectTool());
+  registry.register(new SalesforceQueryTool());
   registry.register(new ToolSearchTool(registry));
 
   return registry;

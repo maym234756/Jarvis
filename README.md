@@ -92,9 +92,12 @@ analyze command git reset --hard HEAD
 run npm test
 research current Node.js LTS
 search current Node.js LTS
+salesforce status
+salesforce describe Account
+salesforce query SELECT Id, Name FROM Account LIMIT 5
 ```
 
-Jarvis is local-first. Its core model runs through the local Ollama runtime with `OLLAMA_BASE_URL` and `OLLAMA_MODEL`; hosted model connectors are optional and disabled unless `JARVIS_ALLOW_HOSTED_PROVIDERS=true` and `JARVIS_MODEL_PROVIDER=openai`. Search uses the keyless DuckDuckGo fallback when `DUCKDUCKGO_SEARCH_FALLBACK=true`, with Brave/Tavily kept as optional connectors.
+Jarvis is local-first. Its core model runs through the local Ollama runtime with `OLLAMA_BASE_URL` and `OLLAMA_MODEL`; hosted model connectors are optional and disabled unless `JARVIS_ALLOW_HOSTED_PROVIDERS=true` and `JARVIS_MODEL_PROVIDER=openai`. Search uses the keyless DuckDuckGo fallback when `DUCKDUCKGO_SEARCH_FALLBACK=true`, with Brave/Tavily kept as optional connectors. Current real-world questions use live read-only research automatically when `JARVIS_AUTO_WEB_RESEARCH=true`.
 
 ## API Server
 
@@ -171,6 +174,7 @@ POST /memory/rebuild { "path": "docs" }
 - Doctor diagnostics, saved sessions, and run history.
 - Backend Docking Station for model, search, memory, tool, session, run, approval, API, and console docks.
 - Connector registry for MCP-style backend docks, endpoint health checks, tool filters, and permission policy metadata.
+- Account-aware connector foundation, including a Salesforce read-only connector that uses the authenticated user's object permissions, field-level security, and sharing rules.
 - Reasoning engine with task traits, evidence needs, risk notes, answer contracts, and logic graphs.
 - Verification engine with plan, tool-result, citation, prompt-injection, and coding verification checks.
 - Runtime profiles for Fast, Balanced, and Deep behavior with latency, cost, tool-call, and verification budgets.
@@ -191,7 +195,7 @@ POST /memory/rebuild { "path": "docs" }
 - User preference store with confidence, sensitivity, expiration, and garbage collection.
 - Repository intelligence layer with file maps, symbol indexes, package scripts, language summary, and test hints.
 - Search engine with query planning, result dedupe, source ranking, source fetching, snippets, citations, cache, and prompt-injection scanning.
-- Keyless DuckDuckGo fallback search, with Brave/Tavily available only as optional keyed connectors.
+- Keyless DuckDuckGo fallback search with HTML result fallback, source fetching, freshness routing, and Brave/Tavily available only as optional keyed connectors.
 - Structured answer formatter for clearer tool results, caveats, evidence, and next steps.
 - Context compaction for long saved sessions so older turns become a compact summary while recent turns stay intact.
 - Tool search for routing requests to the most relevant tools without flooding model prompts.

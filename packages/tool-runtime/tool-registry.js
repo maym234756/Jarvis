@@ -106,7 +106,7 @@ export class ToolRegistry {
       return blocked;
     }
 
-    if (decision.requiresApproval && !bypassApproval) {
+    if (decision.requiresApproval && !bypassApproval && !isAutoApprovedReadOnlyNetwork(name, context)) {
       if (!this.approvalProvider) {
         const queued = this.approvalQueue
           ? await this.approvalQueue.create({
@@ -190,6 +190,12 @@ export class ToolRegistry {
       return failed;
     }
   }
+}
+
+function isAutoApprovedReadOnlyNetwork(toolName, context = {}) {
+  return Boolean(context.autoApproveReadOnlyNetwork)
+    && (toolName === "search.web" || toolName === "research.run")
+    && !/^(0|false|no)$/i.test(process.env.JARVIS_AUTO_WEB_RESEARCH || "true");
 }
 
 function normalize(value = "") {

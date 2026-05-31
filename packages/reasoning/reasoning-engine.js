@@ -1,3 +1,5 @@
+import { analyzeFreshness } from "../freshness/index.js";
+
 export class ReasoningEngine {
   buildFrame({ message, taskType, workflow, plan = [], memoryContext = [], toolIntent = null, context = {} }) {
     const traits = inferTraits(message, taskType, context);
@@ -34,8 +36,10 @@ export function summarizeReasoningFrame(frame) {
 
 function inferTraits(message, taskType, context) {
   const text = String(message || "").toLowerCase();
+  const freshness = analyzeFreshness(message, { taskType });
   return {
-    needsLiveData: taskType === "research" || /\b(latest|current|today|yesterday|news|price|version|release|schedule)\b/.test(text),
+    needsLiveData: freshness.requiresFreshResearch,
+    freshness,
     asksForAction: /\b(run|write|create|build|fix|download|install|delete|update)\b/.test(text),
     asksForCode: taskType === "coding" || /\b(code|test|api|function|bug|repo)\b/.test(text),
     privacyLevel: context.privacyLevel || "project",
