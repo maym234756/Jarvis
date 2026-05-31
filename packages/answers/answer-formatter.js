@@ -72,11 +72,26 @@ function toolSpecificLines(result) {
   if (result.tool === "docking.status" && result.report) {
     return ["", `Docks: ${result.report.summary.ok} ok, ${result.report.summary.warn} warning, ${result.report.summary.error} error`];
   }
+  if (result.tool === "tool.search" && result.tools?.length) {
+    return ["", "Tools:", result.tools.slice(0, 8).map((tool) => `- ${tool.name} (tier ${tool.riskLevel}, score ${tool.score}): ${tool.description}`).join("\n")];
+  }
+  if (result.tool === "connector.list" && result.connectors?.length) {
+    return ["", "Connectors:", result.connectors.map((connector) => `- ${connector.id} (${connector.type}) ${connector.enabled ? "enabled" : "disabled"} ${connector.url || "no-url"}`).join("\n")];
+  }
+  if (result.tool === "connector.add" && result.connector) {
+    return ["", JSON.stringify(result.connector, null, 2)];
+  }
+  if (result.tool === "evals.run" && result.report) {
+    return ["", result.report.results.map((item) => `- ${item.ok ? "OK" : "FAIL"} ${item.id}: ${item.summary}`).join("\n")];
+  }
   if (result.results?.length) {
     return ["", "Results:", result.results.slice(0, 6).map((item, index) => `${index + 1}. ${item.title} - ${item.url}`).join("\n")];
   }
   if (result.citations?.length) {
-    return ["", "Citations:", result.citations.slice(0, 6).map((item) => `- [${item.id}] ${item.title} - ${item.url}`).join("\n")];
+    return ["", "Citations:", result.citations.slice(0, 6).map((item) => {
+      const injection = item.injection?.level && item.injection.level !== "none" ? ` injection:${item.injection.level}` : "";
+      return `- [${item.id}] ${item.title} - ${item.url}${injection}`;
+    }).join("\n")];
   }
   return [];
 }
@@ -103,6 +118,10 @@ function buildCaveats(request) {
     caveats.push("No web search provider is configured, so live research cannot be precise yet.");
   }
   for (const risk of request.reasoningFrame?.risks || []) caveats.push(`${risk.kind}: ${risk.mitigation}`);
+  const suspicious = (request.toolResults || [])
+    .flatMap((result) => result.citations || [])
+    .filter((citation) => citation.injection?.suspicious);
+  if (suspicious.length) caveats.push(`${suspicious.length} fetched source(s) contained prompt-injection signals and were treated only as untrusted evidence.`);
   return caveats.map((item) => `- ${item}`).join("\n");
 }
 

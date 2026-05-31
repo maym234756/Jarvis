@@ -11,6 +11,9 @@ import { WorkflowEngine } from "../packages/workflow-engine/index.js";
 import { ReasoningEngine } from "../packages/reasoning/index.js";
 import { SearchEngine } from "../packages/search/index.js";
 import { MetricsStore } from "../packages/metrics/index.js";
+import { ConnectorRegistry } from "../packages/connectors/index.js";
+import { BackendEvalRunner } from "../packages/evals/index.js";
+import { EvalsRunTool } from "../packages/tool-runtime/tools/evals-tool.js";
 
 const projectRoot = process.cwd();
 loadEnv({ cwd: projectRoot });
@@ -19,14 +22,17 @@ const memoryStore = new MemoryStore({ projectRoot });
 const sessionStore = new SessionStore({ projectRoot });
 const runStore = new RunStore({ projectRoot });
 const metricsStore = new MetricsStore({ projectRoot });
+const connectorRegistry = new ConnectorRegistry({ projectRoot });
 const modelRouter = new ModelRouter();
 const workflowEngine = new WorkflowEngine();
 const reasoningEngine = new ReasoningEngine();
 const searchEngine = new SearchEngine();
-const toolRegistry = createDefaultToolRegistry({ projectRoot, memoryStore, searchEngine, metricsStore });
-const dockingStation = new BackendDockingStation({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore });
+const toolRegistry = createDefaultToolRegistry({ projectRoot, memoryStore, searchEngine, metricsStore, connectorRegistry });
+const evalRunner = new BackendEvalRunner({ projectRoot, toolRegistry, memoryStore, searchEngine });
+const dockingStation = new BackendDockingStation({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner });
 toolRegistry.register(new DockingStatusTool(dockingStation));
 toolRegistry.register(new DockingTestTool(dockingStation));
+toolRegistry.register(new EvalsRunTool(evalRunner));
 
 const [command, id] = process.argv.slice(2);
 if (command === "test") {

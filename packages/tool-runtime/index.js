@@ -6,8 +6,10 @@ import { FileListTool, FileReadTool, FileWriteTool } from "./tools/file-tool.js"
 import { ShellAnalyzeTool, ShellRunTool } from "./tools/shell-tool.js";
 import { ResearchRunTool, SearchWebTool } from "./tools/search-tool.js";
 import { MemoryAddTool, MemoryCompactTool, MemoryIngestTool, MemoryQueryTool, MemoryRebuildTool, MemoryStatsTool } from "./tools/memory-tool.js";
+import { ToolSearchTool } from "./tools/tool-search-tool.js";
+import { ConnectorAddTool, ConnectorListTool, ConnectorTestTool } from "./tools/connector-tool.js";
 
-export function createDefaultToolRegistry({ projectRoot, memoryStore, approvalProvider, searchEngine, metricsStore } = {}) {
+export function createDefaultToolRegistry({ projectRoot, memoryStore, approvalProvider, searchEngine, metricsStore, connectorRegistry } = {}) {
   const approvalQueue = approvalProvider ? null : new ApprovalQueue({ projectRoot });
   const registry = new ToolRegistry({
     projectRoot,
@@ -31,6 +33,12 @@ export function createDefaultToolRegistry({ projectRoot, memoryStore, approvalPr
   registry.register(new MemoryStatsTool(memoryStore));
   registry.register(new MemoryQueryTool(memoryStore));
   registry.register(new MemoryAddTool(memoryStore));
+  if (connectorRegistry) {
+    registry.register(new ConnectorListTool(connectorRegistry));
+    registry.register(new ConnectorAddTool(connectorRegistry));
+    registry.register(new ConnectorTestTool(connectorRegistry));
+  }
+  registry.register(new ToolSearchTool(registry));
 
   return registry;
 }

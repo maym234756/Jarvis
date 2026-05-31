@@ -17,6 +17,9 @@ import { ReasoningEngine } from "../../packages/reasoning/index.js";
 import { SearchEngine } from "../../packages/search/index.js";
 import { getEngineStatus } from "../../packages/engine/index.js";
 import { MetricsStore } from "../../packages/metrics/index.js";
+import { ConnectorRegistry } from "../../packages/connectors/index.js";
+import { BackendEvalRunner } from "../../packages/evals/index.js";
+import { EvalsRunTool } from "../../packages/tool-runtime/tools/evals-tool.js";
 
 const projectRoot = process.cwd();
 loadEnv({ cwd: projectRoot });
@@ -26,14 +29,17 @@ const memoryStore = new MemoryStore({ projectRoot });
 const sessionStore = new SessionStore({ projectRoot });
 const runStore = new RunStore({ projectRoot });
 const metricsStore = new MetricsStore({ projectRoot });
+const connectorRegistry = new ConnectorRegistry({ projectRoot });
 const modelRouter = new ModelRouter();
 const workflowEngine = new WorkflowEngine();
 const reasoningEngine = new ReasoningEngine();
 const searchEngine = new SearchEngine();
-const toolRegistry = createDefaultToolRegistry({ projectRoot, memoryStore, searchEngine, metricsStore });
-const dockingStation = new BackendDockingStation({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore });
+const toolRegistry = createDefaultToolRegistry({ projectRoot, memoryStore, searchEngine, metricsStore, connectorRegistry });
+const evalRunner = new BackendEvalRunner({ projectRoot, toolRegistry, memoryStore, searchEngine });
+const dockingStation = new BackendDockingStation({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner });
 toolRegistry.register(new DockingStatusTool(dockingStation));
 toolRegistry.register(new DockingTestTool(dockingStation));
+toolRegistry.register(new EvalsRunTool(evalRunner));
 const agent = createAgent({
   projectRoot,
   modelRouter,
@@ -98,8 +104,19 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/connectors") {
+      send(res, 200, { ok: true, status: await connectorRegistry.status(), connectors: await connectorRegistry.listConnectors() });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/connectors") {
+      const body = await readJson(req);
+      send(res, 200, { ok: true, connector: await connectorRegistry.addConnector(body) });
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/doctor") {
-      send(res, 200, await runDoctor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, dockingStation }));
+      send(res, 200, await runDoctor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner }));
       return;
     }
 
@@ -109,7 +126,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/engine") {
-      send(res, 200, await getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore }));
+      send(res, 200, await getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry }));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/evals") {
+      send(res, 200, await evalRunner.run({ filter: url.searchParams.get("filter") || undefined }));
       return;
     }
 
@@ -125,6 +147,12 @@ const server = http.createServer(async (req, res) => {
     const dockTestMatch = url.pathname.match(/^\/docking\/([^/]+)\/test$/);
     if (req.method === "POST" && dockTestMatch) {
       send(res, 200, await dockingStation.testDock(decodeURIComponent(dockTestMatch[1])));
+      return;
+    }
+
+    const connectorTestMatch = url.pathname.match(/^\/connectors\/([^/]+)\/test$/);
+    if (req.method === "POST" && connectorTestMatch) {
+      send(res, 200, await connectorRegistry.testConnector(decodeURIComponent(connectorTestMatch[1])));
       return;
     }
 
@@ -146,7 +174,8 @@ const server = http.createServer(async (req, res) => {
         privacyLevel: body.privacyLevel || "project",
         projectRoot,
         sessionId: session.id,
-        sessionHistory: session.messages || []
+        sessionHistory: session.messages || [],
+        sessionSummary: session.compaction?.summary || ""
       });
       send(res, 200, result);
       return;

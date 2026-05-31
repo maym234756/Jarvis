@@ -42,6 +42,8 @@ $("#memoryCompact").addEventListener("click", compactMemory);
 $("#runDoctor").addEventListener("click", showDoctor);
 $("#showEngine").addEventListener("click", showEngine);
 $("#showMetrics").addEventListener("click", showMetrics);
+$("#showEvals").addEventListener("click", showEvals);
+$("#showConnectors").addEventListener("click", showConnectors);
 $("#refreshRuns").addEventListener("click", showRuns);
 $("#refreshSessions").addEventListener("click", showSessions);
 $("#newSession").addEventListener("click", createSession);
@@ -205,6 +207,36 @@ async function showMetrics() {
         <pre>${escapeHtml(JSON.stringify(event, null, 2))}</pre>
       </div>
     `).join("")}
+  `;
+}
+
+async function showEvals() {
+  const report = await api("/evals");
+  $("#opsPanel").innerHTML = `
+    <div class="item"><div class="meta">${escapeHtml(report.summary)}</div><pre>${escapeHtml(JSON.stringify({
+      passed: report.passed,
+      failed: report.failed,
+      duration_ms: report.duration_ms
+    }, null, 2))}</pre></div>
+    ${report.results.map((item) => `
+      <div class="item ${item.ok ? "" : "danger"}">
+        <div class="meta">${escapeHtml(item.ok ? "OK" : "FAIL")} - ${escapeHtml(item.id)}</div>
+        <pre>${escapeHtml(item.summary)}</pre>
+      </div>
+    `).join("")}
+  `;
+}
+
+async function showConnectors() {
+  const data = await api("/connectors");
+  $("#opsPanel").innerHTML = `
+    <div class="item"><div class="meta">Connector Registry</div><pre>${escapeHtml(JSON.stringify(data.status, null, 2))}</pre></div>
+    ${data.connectors.map((connector) => `
+      <div class="item ${connector.enabled ? "" : "warn"}">
+        <div class="meta">${escapeHtml(connector.id)} - ${escapeHtml(connector.type)}</div>
+        <pre>${escapeHtml(JSON.stringify(connector, null, 2))}</pre>
+      </div>
+    `).join("") || `<div class="item"><p>No connectors registered.</p></div>`}
   `;
 }
 

@@ -37,6 +37,9 @@ export class AgentOrchestrator {
     }
 
     const memoryContext = await this.memoryStore.query(message, { limit: 4 });
+    const relevantTools = this.toolRegistry.searchTools
+      ? this.toolRegistry.searchTools(message, { limit: 6 })
+      : this.toolRegistry.listTools?.().slice(0, 6) || [];
     const reasoningFrame = this.reasoningEngine.buildFrame({
       message,
       taskType,
@@ -74,7 +77,9 @@ export class AgentOrchestrator {
         memoryContext,
         toolResults,
         reasoningFrame,
+        relevantTools,
         sessionHistory: context.sessionHistory || [],
+        sessionSummary: context.sessionSummary || "",
         privacyLevel: context.privacyLevel || "project"
       });
 
@@ -111,6 +116,7 @@ export class AgentOrchestrator {
         plan,
         reasoningFrame,
         memoryContext,
+        relevantTools,
         toolResults,
         answer
       };

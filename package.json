@@ -13,6 +13,7 @@
     "docks": "node scripts/docks.js",
     "ingest": "node scripts/ingest.js",
     "memory:rebuild": "node scripts/rebuild-memory.js",
+    "evals": "node scripts/evals.js",
     "test": "node --test"
   },
   "engines": {

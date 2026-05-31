@@ -49,6 +49,9 @@ Useful terminal commands:
 /dock test memory.local-jsonl
 /engine
 /metrics
+/evals
+/connectors
+/connector add local.mcp http://localhost:3333
 /session new project work
 /runs
 read README.md
@@ -79,6 +82,10 @@ GET  /docking
 POST /docking/:id/test
 GET  /engine
 GET  /metrics
+GET  /evals
+GET  /connectors
+POST /connectors { "id": "local.mcp", "url": "http://localhost:3333" }
+POST /connectors/:id/test
 POST /chat    { "message": "read README.md" }
 POST /ingest  { "path": "docs" }
 GET  /approvals
@@ -103,9 +110,13 @@ POST /memory/rebuild { "path": "docs" }
 - Web console for chat, approvals, memory search, and tool inventory.
 - Doctor diagnostics, saved sessions, and run history.
 - Backend Docking Station for model, search, memory, tool, session, run, approval, API, and console docks.
+- Connector registry for MCP-style backend docks, endpoint health checks, tool filters, and permission policy metadata.
 - Reasoning engine with task traits, evidence needs, risk notes, answer contracts, and logic graphs.
-- Search engine with query planning, result dedupe, source ranking, source fetching, snippets, and citations.
+- Search engine with query planning, result dedupe, source ranking, source fetching, snippets, citations, cache, and prompt-injection scanning.
 - Structured answer formatter for clearer tool results, caveats, evidence, and next steps.
+- Context compaction for long saved sessions so older turns become a compact summary while recent turns stay intact.
+- Tool search for routing requests to the most relevant tools without flooding model prompts.
+- Backend eval runner for context, tool routing, search safety, and shell-policy regression checks.
 - Metrics store for backend timing, tool durations, cache visibility, and performance summaries.
 - Policy engine with risk tiers, approval gates, dangerous action blocking, and audit logs.
 - Chunking pipeline with metadata, line citations, hashing, local embeddings, filters, compaction, rebuilds, and persistent JSONL memory.
@@ -131,3 +142,5 @@ Pending API approvals are stored in `.jarvis/approvals/queue.json`.
 Saved sessions live in `.jarvis/sessions/`, and agent runs are tracked in `.jarvis/runs/runs.jsonl`.
 
 The latest Backend Docking Station report is stored at `.jarvis/docking/last-report.json`.
+
+Connector metadata lives in `.jarvis/connectors/connectors.json`. Backend evals can be run with `npm run evals`.

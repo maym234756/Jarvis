@@ -46,6 +46,12 @@ export function parseToolIntent(message) {
   match = text.match(/^research\s+(.+)$/i);
   if (match) return { tool: "research.run", args: { query: match[1].trim(), limit: 5, maxSources: 3 } };
 
+  match = text.match(/^(?:tool search|find tool|which tool|tools for)\s+(.+)$/i);
+  if (match) return { tool: "tool.search", args: { query: match[1].trim(), limit: 8 } };
+
+  match = text.match(/^(?:evals|run evals|backend evals)(?:\s+(.+))?$/i);
+  if (match) return { tool: "evals.run", args: { filter: match[1]?.trim() || undefined } };
+
   match = text.match(/^ingest\s+(.+)$/i);
   if (match) return { tool: "memory.ingest", args: { path: match[1].trim() } };
 
@@ -63,6 +69,15 @@ export function parseToolIntent(message) {
 
   match = text.match(/^(?:test dock|dock test)\s+(.+)$/i);
   if (match) return { tool: "docking.test", args: { id: match[1].trim() } };
+
+  match = text.match(/^(?:connectors|connector list)$/i);
+  if (match) return { tool: "connector.list", args: {} };
+
+  match = text.match(/^connector add\s+([a-z0-9._-]+)\s+(\S+)(?:\s+(.+))?$/i);
+  if (match) return { tool: "connector.add", args: { id: match[1].trim(), url: match[2].trim(), name: match[3]?.trim() || match[1].trim() } };
+
+  match = text.match(/^connector test\s+(.+)$/i);
+  if (match) return { tool: "connector.test", args: { id: match[1].trim() } };
 
   match = text.match(/^remember\s+(.+)$/i);
   if (match) return { tool: "memory.add", args: { text: match[1].trim(), sourcePath: "user-memory" } };

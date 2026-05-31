@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getProviderStatus } from "../config/env.js";
 
-export async function runDoctor({ projectRoot = process.cwd(), memoryStore, toolRegistry, runStore, sessionStore, dockingStation } = {}) {
+export async function runDoctor({ projectRoot = process.cwd(), memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner } = {}) {
   const checks = [];
   const providers = getProviderStatus();
 
@@ -45,6 +45,11 @@ export async function runDoctor({ projectRoot = process.cwd(), memoryStore, tool
       `${report.summary.total} dock(s), ${report.summary.ok} ok, ${report.summary.warn} warning(s).`,
       report.summary.error === 0 ? "ok" : "fail"
     ));
+  }
+
+  if (evalRunner) {
+    const evals = await evalRunner.run();
+    checks.push(check("Backend evals", evals.ok, evals.summary, evals.ok ? "ok" : "fail"));
   }
 
   const failed = checks.filter((item) => item.status === "fail").length;

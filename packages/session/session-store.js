@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { ContextCompactor } from "../context/index.js";
 
 export class SessionStore {
-  constructor({ projectRoot } = {}) {
+  constructor({ projectRoot, contextCompactor } = {}) {
     this.projectRoot = projectRoot || process.cwd();
     this.sessionDir = path.join(this.projectRoot, ".jarvis", "sessions");
+    this.contextCompactor = contextCompactor || new ContextCompactor();
   }
 
   async createSession({ title = "Jarvis session", mode = "agent", privacyLevel = "project" } = {}) {
@@ -17,6 +19,11 @@ export class SessionStore {
       privacyLevel,
       created_at: now,
       updated_at: now,
+      compaction: {
+        summary: "",
+        compacted_messages: 0,
+        last_compacted_at: null
+      },
       messages: []
     };
     await this.#writeSession(session);
@@ -30,9 +37,11 @@ export class SessionStore {
       timestamp: new Date().toISOString(),
       ...message
     });
-    session.updated_at = new Date().toISOString();
-    await this.#writeSession(session);
-    return session.messages.at(-1);
+    const compacted = this.contextCompactor.compact(session);
+    const nextSession = compacted.session;
+    nextSession.updated_at = new Date().toISOString();
+    await this.#writeSession(nextSession);
+    return nextSession.messages.at(-1);
   }
 
   async listSessions({ limit = 20 } = {}) {
@@ -78,6 +87,7 @@ function summarizeSession(session) {
     privacyLevel: session.privacyLevel,
     created_at: session.created_at,
     updated_at: session.updated_at,
-    messages: session.messages.length
+    messages: session.messages.length,
+    compacted_messages: session.compaction?.compacted_messages || 0
   };
 }

@@ -16,6 +16,9 @@ import { ReasoningEngine } from "../../packages/reasoning/index.js";
 import { SearchEngine } from "../../packages/search/index.js";
 import { getEngineStatus } from "../../packages/engine/index.js";
 import { MetricsStore } from "../../packages/metrics/index.js";
+import { ConnectorRegistry } from "../../packages/connectors/index.js";
+import { BackendEvalRunner, formatEvalReport } from "../../packages/evals/index.js";
+import { EvalsRunTool } from "../../packages/tool-runtime/tools/evals-tool.js";
 
 const projectRoot = process.cwd();
 loadEnv({ cwd: projectRoot });
@@ -48,6 +51,7 @@ const memoryStore = new MemoryStore({ projectRoot });
 const sessionStore = new SessionStore({ projectRoot });
 const runStore = new RunStore({ projectRoot });
 const metricsStore = new MetricsStore({ projectRoot });
+const connectorRegistry = new ConnectorRegistry({ projectRoot });
 const modelRouter = new ModelRouter();
 const workflowEngine = new WorkflowEngine();
 const reasoningEngine = new ReasoningEngine();
@@ -57,8 +61,10 @@ const toolRegistry = createDefaultToolRegistry({
   memoryStore,
   approvalProvider: askApproval,
   searchEngine,
-  metricsStore
+  metricsStore,
+  connectorRegistry
 });
+const evalRunner = new BackendEvalRunner({ projectRoot, toolRegistry, memoryStore, searchEngine });
 const agent = createAgent({
   projectRoot,
   modelRouter,
@@ -69,9 +75,10 @@ const agent = createAgent({
   runStore,
   reasoningEngine
 });
-const dockingStation = new BackendDockingStation({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore });
+const dockingStation = new BackendDockingStation({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner });
 toolRegistry.register(new DockingStatusTool(dockingStation));
 toolRegistry.register(new DockingTestTool(dockingStation));
+toolRegistry.register(new EvalsRunTool(evalRunner));
 
 function printHelp() {
   console.log(`
@@ -90,6 +97,10 @@ Commands
   /dock test <id>       Test one backend dock
   /engine               Show engine backend status
   /metrics              Show performance metrics
+  /evals                Run backend evals
+  /connectors           List backend connectors
+  /connector add <id> <url>
+  /connector test <id>
   /session new <title>  Start a saved chat session
   /session list         List recent sessions
   /history              Show current session history
@@ -136,7 +147,7 @@ async function handleSlashCommand(line) {
   }
 
   if (command === "doctor") {
-    const report = await runDoctor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, dockingStation });
+    const report = await runDoctor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner });
     console.log(formatDoctorReport(report));
     return true;
   }
@@ -157,12 +168,43 @@ async function handleSlashCommand(line) {
   }
 
   if (command === "engine") {
-    console.log(JSON.stringify(await getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore }), null, 2));
+    console.log(JSON.stringify(await getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry }), null, 2));
     return true;
   }
 
   if (command === "metrics") {
     console.log(JSON.stringify(await metricsStore.summary(), null, 2));
+    return true;
+  }
+
+  if (command === "evals") {
+    console.log(formatEvalReport(await evalRunner.run({ filter: arg || undefined })));
+    return true;
+  }
+
+  if (command === "connectors") {
+    console.log(JSON.stringify({
+      status: await connectorRegistry.status(),
+      connectors: await connectorRegistry.listConnectors()
+    }, null, 2));
+    return true;
+  }
+
+  if (command === "connector") {
+    const [action, id, url, ...parts] = arg.split(/\s+/);
+    if (action === "add" && id && url) {
+      console.log(await connectorRegistry.addConnector({
+        id,
+        url,
+        name: parts.join(" ").trim() || id
+      }));
+      return true;
+    }
+    if (action === "test" && id) {
+      console.log(await connectorRegistry.testConnector(id));
+      return true;
+    }
+    console.log("Usage: /connector add <id> <url> or /connector test <id>");
     return true;
   }
 
@@ -294,7 +336,8 @@ async function main() {
       privacyLevel,
       projectRoot,
       sessionId: activeSession?.id,
-      sessionHistory: session?.messages || []
+      sessionHistory: session?.messages || [],
+      sessionSummary: session?.compaction?.summary || ""
     });
     if (response.runId) console.log(`Run: ${response.runId}`);
     if (response.workflow) console.log(`Workflow: ${response.workflow.name}`);

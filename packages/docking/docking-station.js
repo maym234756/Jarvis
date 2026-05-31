@@ -3,7 +3,7 @@ import path from "node:path";
 import { getProviderStatus } from "../config/env.js";
 
 export class BackendDockingStation {
-  constructor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore } = {}) {
+  constructor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner } = {}) {
     this.projectRoot = projectRoot || process.cwd();
     this.memoryStore = memoryStore;
     this.toolRegistry = toolRegistry;
@@ -14,6 +14,8 @@ export class BackendDockingStation {
     this.searchEngine = searchEngine;
     this.workflowEngine = workflowEngine;
     this.metricsStore = metricsStore;
+    this.connectorRegistry = connectorRegistry;
+    this.evalRunner = evalRunner;
     this.stateDir = path.join(this.projectRoot, ".jarvis", "docking");
     this.reportPath = path.join(this.stateDir, "last-report.json");
   }
@@ -38,6 +40,7 @@ export class BackendDockingStation {
     const approvals = this.toolRegistry?.approvalQueue ? await this.toolRegistry.approvalQueue.list({ status: "pending" }) : [];
     const runStats = this.runStore ? await this.runStore.stats() : null;
     const sessions = this.sessionStore ? await this.sessionStore.listSessions({ limit: 1000 }) : [];
+    const connectorStatus = this.connectorRegistry ? await this.connectorRegistry.status() : null;
     const port = Number(process.env.JARVIS_PORT || 8787);
 
     return [
@@ -84,6 +87,21 @@ export class BackendDockingStation {
         health: this.searchEngine ? "ok" : "warn",
         capabilities: ["query-planning", "dedupe", "source-ranking", "source-fetch", "snippet-extraction", "citations", "cache"],
         details: this.searchEngine?.cacheStatus ? this.searchEngine.cacheStatus() : {}
+      }),
+      dock({
+        id: "context.compaction",
+        name: "Context Compaction",
+        type: "engine",
+        status: this.sessionStore?.contextCompactor ? "online" : "offline",
+        health: this.sessionStore?.contextCompactor ? "ok" : "warn",
+        capabilities: ["long-session-summary", "recent-turn-retention", "prompt-budgeting"],
+        details: this.sessionStore?.contextCompactor
+          ? {
+            maxMessages: this.sessionStore.contextCompactor.maxMessages,
+            keepMessages: this.sessionStore.contextCompactor.keepMessages,
+            maxSummaryChars: this.sessionStore.contextCompactor.maxSummaryChars
+          }
+          : {}
       }),
       dock({
         id: "engine.workflow",
@@ -196,6 +214,25 @@ export class BackendDockingStation {
         details: this.metricsStore ? await this.metricsStore.summary() : {}
       }),
       dock({
+        id: "connectors.registry",
+        name: "Connector Registry",
+        type: "connectors",
+        status: this.connectorRegistry ? "online" : "offline",
+        health: this.connectorRegistry ? "ok" : "warn",
+        endpoint: path.join(this.projectRoot, ".jarvis", "connectors", "connectors.json"),
+        capabilities: ["mcp-style-connectors", "endpoint-health", "permission-policy", "tool-filters"],
+        details: connectorStatus || {}
+      }),
+      dock({
+        id: "evals.backend",
+        name: "Backend Evals",
+        type: "quality",
+        status: this.evalRunner ? "available" : "offline",
+        health: this.evalRunner ? "ok" : "warn",
+        capabilities: ["tool-routing-evals", "safety-evals", "context-evals", "runtime-regression-checks"],
+        guidance: this.evalRunner ? null : "Configure the eval runner to run backend quality checks."
+      }),
+      dock({
         id: "tools.registry",
         name: "Tool Registry",
         type: "tools",
@@ -259,6 +296,11 @@ export class BackendDockingStation {
     if (id === "search.tavily") return testTavilySearch();
     if (id === "memory.local-jsonl") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.chunks || 0} chunk(s) available.` };
     if (id === "metrics.local-jsonl") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.totalEvents || 0} metric event(s) recorded.` };
+    if (id === "connectors.registry") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.count || 0} connector(s), ${target.details.enabled || 0} enabled.` };
+    if (id === "evals.backend" && this.evalRunner) {
+      const result = await this.evalRunner.run();
+      return { ok: result.ok, id, status: result.ok ? "passing" : "failing", message: result.summary, result };
+    }
     if (id === "tools.registry") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.count || 0} tool(s) registered.` };
     return { ok: target.health !== "error", id, status: target.status, message: `${target.name} is ${target.status}.` };
   }

@@ -149,14 +149,23 @@ function buildPrompt(request) {
   const sessionHistory = request.sessionHistory?.length
     ? request.sessionHistory.slice(-8).map((message) => `${message.role}: ${truncate(message.content, 700)}`).join("\n")
     : "No saved session history.";
+  const sessionSummary = request.sessionSummary || "No compacted session summary.";
+  const relevantTools = request.relevantTools?.length
+    ? request.relevantTools.map((tool) => {
+      const capabilities = tool.capabilities?.length ? ` capabilities=${tool.capabilities.join(",")}` : "";
+      return `- ${tool.name} (tier ${tool.riskLevel}, score ${tool.score ?? "n/a"}): ${tool.description}${capabilities}`;
+    }).join("\n")
+    : "No relevant tools were ranked.";
 
   return [
     `User request:\n${request.message}`,
     `Task type: ${request.taskType}`,
     `Workflow: ${request.workflow?.name || "none"}`,
+    `Compacted session summary:\n${sessionSummary}`,
     `Recent session history:\n${sessionHistory}`,
     `Reasoning frame:\n${reasoning}`,
     `Plan:\n${plan}`,
+    `Relevant tool search results:\n${relevantTools}`,
     `Retrieved memory:\n${memory}`,
     `Tool results:\n${tools}`,
     `Answer contract:\n${buildAnswerInstructions(request.reasoningFrame?.answerContract)}`,
@@ -181,7 +190,10 @@ function formatToolForPrompt(result) {
     const sources = result.sources.map((source, index) => {
       if (!source.ok) return `Source ${index + 1}: ${source.title} ${source.url} (fetch failed: ${source.error})`;
       const snippets = source.snippets?.length ? source.snippets.map((snippet) => `- ${snippet}`).join("\n") : source.text.slice(0, 1500);
-      return `Source ${index + 1}: ${source.title} ${source.url}\nCredibility: ${source.source_type}; score ${source.score}\n${truncate(snippets, 1800)}`;
+      const injection = source.injection?.level && source.injection.level !== "none"
+        ? `\nPrompt-injection signal: ${source.injection.level} (${source.injection.score})`
+        : "";
+      return `Source ${index + 1}: ${source.title} ${source.url}\nCredibility: ${source.source_type}; score ${source.score}${injection}\n${truncate(snippets, 1800)}`;
     }).join("\n\n");
     const precision = result.precision ? `Precision: ${JSON.stringify(result.precision)}` : "";
     return `${summary}\n${precision}\n${result.safety_note}\n${sources}`;
