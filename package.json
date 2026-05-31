@@ -1,0 +1,21 @@
+{
+  "name": "jarvis-ai-platform",
+  "version": "0.1.0",
+  "description": "A secure local AI operating layer MVP with terminal chat, tools, memory, chunking, workflows, and audit logs.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node apps/terminal-chat/index.js",
+    "chat": "node apps/terminal-chat/index.js",
+    "api": "node apps/api-server/server.js",
+    "console": "node apps/api-server/server.js",
+    "doctor": "node scripts/doctor.js",
+    "docks": "node scripts/docks.js",
+    "ingest": "node scripts/ingest.js",
+    "memory:rebuild": "node scripts/rebuild-memory.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

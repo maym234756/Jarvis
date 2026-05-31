@@ -1,0 +1,6 @@
+.env
+.jarvis/
+node_modules/
+coverage/
+.test-output/
+*.log

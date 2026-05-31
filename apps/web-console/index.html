@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Jarvis Console</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <aside>
+      <div class="brand">
+        <span class="mark">J</span>
+        <div>
+          <h1>Jarvis</h1>
+          <p id="providerLine">Checking providers...</p>
+        </div>
+      </div>
+
+      <nav>
+        <button data-tab="chat" class="active">Chat</button>
+        <button data-tab="approvals">Approvals</button>
+        <button data-tab="memory">Memory</button>
+        <button data-tab="tools">Tools</button>
+        <button data-tab="docks">Docks</button>
+        <button data-tab="ops">Ops</button>
+      </nav>
+    </aside>
+
+    <main>
+      <section id="chat" class="tab active">
+        <div class="toolbar">
+          <select id="mode">
+            <option value="agent">Agent</option>
+            <option value="research">Research</option>
+            <option value="code">Code</option>
+            <option value="admin">Admin</option>
+          </select>
+          <select id="privacy">
+            <option value="project">Project</option>
+            <option value="private">Private</option>
+            <option value="public">Public</option>
+          </select>
+        </div>
+        <div id="conversation" class="panel log"></div>
+        <form id="chatForm" class="composer">
+          <input id="message" autocomplete="off" placeholder="Ask Jarvis, run a tool, or research a topic">
+          <button>Send</button>
+        </form>
+      </section>
+
+      <section id="approvals" class="tab">
+        <div class="toolbar">
+          <button id="refreshApprovals">Refresh</button>
+        </div>
+        <div id="approvalList" class="panel stack"></div>
+      </section>
+
+      <section id="memory" class="tab">
+        <div class="toolbar">
+          <input id="memoryQuery" placeholder="Search memory">
+          <input id="memoryFilter" placeholder="Source contains">
+          <button id="memorySearch">Search</button>
+          <button id="memoryStats">Stats</button>
+          <button id="memoryCompact">Compact</button>
+        </div>
+        <div id="memoryResults" class="panel stack"></div>
+      </section>
+
+      <section id="tools" class="tab">
+        <div class="toolbar">
+          <button id="refreshTools">Refresh</button>
+        </div>
+        <div id="toolList" class="panel stack"></div>
+      </section>
+
+      <section id="docks" class="tab">
+        <div class="toolbar">
+          <button id="refreshDocks">Refresh</button>
+        </div>
+        <div id="dockList" class="panel stack"></div>
+      </section>
+
+      <section id="ops" class="tab">
+        <div class="toolbar">
+          <button id="runDoctor">Doctor</button>
+          <button id="showEngine">Engine</button>
+          <button id="showMetrics">Metrics</button>
+          <button id="refreshRuns">Runs</button>
+          <button id="refreshSessions">Sessions</button>
+          <button id="newSession">New Session</button>
+        </div>
+        <div id="opsPanel" class="panel stack"></div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
