@@ -54,13 +54,18 @@ test("events, workflow state, policy, and artifacts persist local records", asyn
   const workflowStateStore = new WorkflowStateStore({ projectRoot: root });
   const artifactStore = new ArtifactStore({ projectRoot: root });
 
+  const streamed = [];
+  const unsubscribe = eventBus.subscribe((event) => streamed.push(event));
   await eventBus.publish("test.event", { ok: true });
+  unsubscribe();
   const policy = await policyStore.getPolicy();
   await workflowStateStore.create({ runId: "run-test", workflow: "TestWorkflow", goal: "test", taskType: "chat" });
   await workflowStateStore.transition("run-test", "CONTEXT_GATHERING");
   const artifact = await artifactStore.create({ type: "markdown", title: "Test", content: "# Test", verified: true });
 
   assert.equal((await eventBus.summary()).total, 1);
+  assert.equal(streamed.length, 1);
+  assert.equal(streamed[0].type, "test.event");
   assert.equal(policy.network.default, "ask");
   assert.equal((await workflowStateStore.get("run-test")).status, "CONTEXT_GATHERING");
   assert.ok(artifact.id.startsWith("art_"));

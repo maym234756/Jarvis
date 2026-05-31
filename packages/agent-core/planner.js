@@ -100,6 +100,21 @@ export function parseToolIntent(message) {
   match = text.match(/^(?:policy|policy show)$/i);
   if (match) return { tool: "policy.show", args: {} };
 
+  match = text.match(/^(?:policy decide|policy check)\s+([\s\S]+)$/i);
+  if (match) return { tool: "policy.decide", args: { action: match[1].trim(), command: match[1].trim() } };
+
+  match = text.match(/^(?:risk score|score risk|risk)\s+([\s\S]+)$/i);
+  if (match) return { tool: "risk.score", args: { action: match[1].trim(), command: match[1].trim() } };
+
+  match = text.match(/^(?:failure classify|classify failure)\s+([\s\S]+)$/i);
+  if (match) return { tool: "failure.classify", args: { error: match[1].trim() } };
+
+  match = text.match(/^(?:run ledger|ledger)(?:\s+(\d+))?$/i);
+  if (match) return { tool: "run.ledger", args: { limit: match[1] ? Number(match[1]) : 20 } };
+
+  match = text.match(/^(?:run replay|replay run)\s+(.+)$/i);
+  if (match) return { tool: "run.replay", args: { runId: match[1].trim() } };
+
   match = text.match(/^workflow state$/i);
   if (match) return { tool: "workflow.state", args: {} };
 

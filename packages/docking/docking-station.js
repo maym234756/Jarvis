@@ -4,7 +4,7 @@ import { getProviderStatus } from "../config/env.js";
 import { listRuntimeProfiles } from "../runtime/index.js";
 
 export class BackendDockingStation {
-  constructor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane } = {}) {
+  constructor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger } = {}) {
     this.projectRoot = projectRoot || process.cwd();
     this.memoryStore = memoryStore;
     this.toolRegistry = toolRegistry;
@@ -30,6 +30,9 @@ export class BackendDockingStation {
     this.workflowStateStore = workflowStateStore;
     this.artifactStore = artifactStore;
     this.controlPlane = controlPlane;
+    this.riskScorer = riskScorer;
+    this.policyDecisionPoint = policyDecisionPoint;
+    this.runLedger = runLedger;
     this.stateDir = path.join(this.projectRoot, ".jarvis", "docking");
     this.reportPath = path.join(this.stateDir, "last-report.json");
   }
@@ -61,8 +64,11 @@ export class BackendDockingStation {
     const environment = this.environmentInspector ? await this.environmentInspector.inspect() : null;
     const eventSummary = this.eventBus ? await this.eventBus.summary() : null;
     const policyStatus = this.policyStore ? await this.policyStore.status() : null;
+    const riskSample = this.riskScorer ? this.riskScorer.scoreAction({ action: "npm install package", command: "npm install package" }) : null;
+    const policyDecisionSample = this.policyDecisionPoint ? await this.policyDecisionPoint.decide({ action: "download https://example.com/file.zip", networkTarget: "https://example.com/file.zip" }) : null;
     const workflowStateSummary = this.workflowStateStore ? await this.workflowStateStore.summary() : null;
     const artifactSummary = this.artifactStore ? await this.artifactStore.summary() : null;
+    const runLedgerSummary = this.runLedger ? await this.runLedger.summary() : null;
     const port = Number(process.env.JARVIS_PORT || 8787);
 
     return [
@@ -156,6 +162,24 @@ export class BackendDockingStation {
         details: policyStatus || {}
       }),
       dock({
+        id: "policy.decision-point",
+        name: "Policy Decision Point",
+        type: "safety",
+        status: this.policyDecisionPoint ? "online" : "offline",
+        health: this.policyDecisionPoint ? "ok" : "warn",
+        capabilities: ["allow-deny-approval", "sandbox-routing", "policy-preflight"],
+        details: policyDecisionSample || {}
+      }),
+      dock({
+        id: "risk.scorer",
+        name: "Risk Scorer",
+        type: "safety",
+        status: this.riskScorer ? "online" : "offline",
+        health: this.riskScorer ? "ok" : "warn",
+        capabilities: ["step-risk", "plan-risk", "approval-thresholds", "failure-taxonomy"],
+        details: riskSample || {}
+      }),
+      dock({
         id: "context.budget",
         name: "Context Budget Manager",
         type: "context",
@@ -209,34 +233,35 @@ export class BackendDockingStation {
         type: "model",
         status: this.modelRouter ? "online" : "offline",
         health: this.modelRouter ? "ok" : "warn",
-        capabilities: ["privacy-routing", "hosted-models", "local-models", "fallback-local-draft"],
+        capabilities: ["local-first-routing", "optional-provider-connectors", "privacy-routing", "fallback-local-draft"],
         details: this.modelRouter?.describe ? this.modelRouter.describe({ privacyLevel: "project" }) : {}
       }),
       dock({
         id: "model.openai",
-        name: "OpenAI-Compatible Chat Model",
+        name: "OpenAI-Compatible Optional Connector",
         type: "model",
+        optional: true,
         configured: providers.openai.configured,
-        status: providers.openai.configured ? "configured" : "not_configured",
-        health: providers.openai.configured ? "ok" : "warn",
+        status: providers.openai.configured ? providers.openai.enabled ? "connector_enabled" : "connector_configured_disabled" : "optional",
+        health: "ok",
         endpoint: providers.openai.baseUrl,
-        configKeys: ["OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_BASE_URL"],
-        capabilities: ["chat-completions", "reasoning"],
-        guidance: "Set OPENAI_API_KEY and OPENAI_MODEL in .env to use a hosted OpenAI-compatible model.",
-        details: { model: providers.openai.model }
+        configKeys: ["JARVIS_ALLOW_HOSTED_PROVIDERS", "JARVIS_MODEL_PROVIDER", "OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_BASE_URL"],
+        capabilities: ["optional-hosted-connector", "chat-completions"],
+        guidance: "Optional connector only. Jarvis stays local-first unless JARVIS_ALLOW_HOSTED_PROVIDERS=true and JARVIS_MODEL_PROVIDER=openai.",
+        details: { model: providers.openai.model, enabled: providers.openai.enabled }
       }),
       dock({
         id: "model.ollama",
-        name: "Ollama Local Model",
+        name: "Jarvis Local Model",
         type: "model",
         configured: providers.ollama.configured,
         status: providers.ollama.configured ? "configured" : "not_configured",
         health: providers.ollama.configured ? "ok" : "warn",
         endpoint: providers.ollama.baseUrl,
         configKeys: ["OLLAMA_BASE_URL", "OLLAMA_MODEL"],
-        capabilities: ["local-chat", "private-inference"],
-        guidance: "Set OLLAMA_BASE_URL and OLLAMA_MODEL in .env to use local inference.",
-        details: { model: providers.ollama.model }
+        capabilities: ["jarvis-local-chat", "private-inference"],
+        guidance: "Set OLLAMA_BASE_URL and OLLAMA_MODEL in .env so Jarvis can run its local model.",
+        details: { model: providers.ollama.model, runtime: "ollama" }
       }),
       dock({
         id: "embeddings.local",
@@ -250,40 +275,55 @@ export class BackendDockingStation {
       }),
       dock({
         id: "embeddings.openai",
-        name: "OpenAI-Compatible Embeddings",
+        name: "OpenAI-Compatible Optional Embeddings Connector",
         type: "embeddings",
+        optional: true,
         configured: providers.openaiEmbeddings.configured,
-        status: providers.openaiEmbeddings.configured ? "configured" : "not_configured",
-        health: providers.openaiEmbeddings.configured ? "ok" : "warn",
+        status: providers.openaiEmbeddings.configured ? providers.openaiEmbeddings.enabled ? "connector_enabled" : "connector_configured_disabled" : "optional",
+        health: "ok",
         endpoint: providers.openai.baseUrl,
-        configKeys: ["OPENAI_API_KEY", "OPENAI_EMBEDDING_MODEL"],
-        capabilities: ["hosted-embeddings"],
-        guidance: "Set OPENAI_EMBEDDING_MODEL when you want hosted embeddings instead of local hash embeddings.",
-        details: { model: providers.openaiEmbeddings.model }
+        configKeys: ["JARVIS_ALLOW_HOSTED_PROVIDERS", "OPENAI_API_KEY", "OPENAI_EMBEDDING_MODEL"],
+        capabilities: ["optional-hosted-embeddings"],
+        guidance: "Optional connector only. Jarvis uses local hash embeddings by default.",
+        details: { model: providers.openaiEmbeddings.model, enabled: providers.openaiEmbeddings.enabled }
       }),
       dock({
         id: "search.brave",
-        name: "Brave Search",
+        name: "Brave Optional Search Connector",
         type: "search",
+        optional: true,
         configured: Boolean(process.env.BRAVE_SEARCH_API_KEY),
-        status: process.env.BRAVE_SEARCH_API_KEY ? "configured" : "not_configured",
-        health: process.env.BRAVE_SEARCH_API_KEY ? "ok" : "warn",
+        status: process.env.BRAVE_SEARCH_API_KEY ? "connector_configured" : "optional",
+        health: "ok",
         endpoint: "https://api.search.brave.com",
         configKeys: ["BRAVE_SEARCH_API_KEY"],
-        capabilities: ["web-search", "research"],
-        guidance: "Set BRAVE_SEARCH_API_KEY to enable live web research."
+        capabilities: ["optional-search-connector", "web-search", "research"],
+        guidance: "Optional connector. Jarvis can use DuckDuckGo fallback without this key."
       }),
       dock({
         id: "search.tavily",
-        name: "Tavily Search",
+        name: "Tavily Optional Search Connector",
         type: "search",
+        optional: true,
         configured: Boolean(process.env.TAVILY_API_KEY),
-        status: process.env.TAVILY_API_KEY ? "configured" : "not_configured",
-        health: process.env.TAVILY_API_KEY ? "ok" : "warn",
+        status: process.env.TAVILY_API_KEY ? "connector_configured" : "optional",
+        health: "ok",
         endpoint: "https://api.tavily.com",
         configKeys: ["TAVILY_API_KEY"],
-        capabilities: ["web-search", "research"],
-        guidance: "Set TAVILY_API_KEY to enable live web research."
+        capabilities: ["optional-search-connector", "web-search", "research"],
+        guidance: "Optional connector. Jarvis can use DuckDuckGo fallback without this key."
+      }),
+      dock({
+        id: "search.duckduckgo",
+        name: "DuckDuckGo Fallback Search",
+        type: "search",
+        configured: /^(1|true|yes)$/i.test(process.env.DUCKDUCKGO_SEARCH_FALLBACK || ""),
+        status: /^(1|true|yes)$/i.test(process.env.DUCKDUCKGO_SEARCH_FALLBACK || "") ? "configured" : "not_configured",
+        health: /^(1|true|yes)$/i.test(process.env.DUCKDUCKGO_SEARCH_FALLBACK || "") ? "ok" : "warn",
+        endpoint: "https://api.duckduckgo.com",
+        configKeys: ["DUCKDUCKGO_SEARCH_FALLBACK"],
+        capabilities: ["keyless-search", "instant-answer-search", "research-fallback"],
+        guidance: "Set DUCKDUCKGO_SEARCH_FALLBACK=true for Jarvis keyless fallback search."
       }),
       dock({
         id: "memory.local-jsonl",
@@ -352,6 +392,16 @@ export class BackendDockingStation {
         endpoint: path.join(this.projectRoot, ".jarvis", "workflow-state"),
         capabilities: ["agent-state", "pause-resume-foundation", "state-transitions", "audit"],
         details: workflowStateSummary || {}
+      }),
+      dock({
+        id: "run.ledger",
+        name: "Replayable Run Ledger",
+        type: "state",
+        status: this.runLedger ? "online" : "offline",
+        health: this.runLedger ? "ok" : "warn",
+        endpoint: path.join(this.projectRoot, ".jarvis", "run-ledger", "runs.jsonl"),
+        capabilities: ["run-ledger", "replay", "failure-analysis", "audit"],
+        details: runLedgerSummary || {}
       }),
       dock({
         id: "artifacts.local-store",
@@ -429,6 +479,24 @@ export class BackendDockingStation {
     const target = docks.find((item) => item.id === id);
     if (!target) throw new Error(`Unknown dock: ${id}`);
 
+    if (target.optional && /disabled/.test(target.status)) {
+      return {
+        ok: true,
+        id,
+        status: target.status,
+        message: target.guidance || "Optional connector is configured but disabled by Jarvis local-first policy."
+      };
+    }
+
+    if (!target.configured && target.optional) {
+      return {
+        ok: true,
+        id,
+        status: target.status,
+        message: target.guidance || "Optional connector is not configured; Jarvis core does not require it."
+      };
+    }
+
     if (!target.configured && ["model", "search", "embeddings"].includes(target.type) && id !== "embeddings.local") {
       return {
         ok: false,
@@ -444,6 +512,7 @@ export class BackendDockingStation {
     if (id === "embeddings.openai") return testOpenAIEmbeddings(target);
     if (id === "search.brave") return testBraveSearch();
     if (id === "search.tavily") return testTavilySearch();
+    if (id === "search.duckduckgo") return testDuckDuckGoSearch();
     if (id === "memory.local-jsonl") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.chunks || 0} chunk(s) available.` };
     if (id === "metrics.local-jsonl") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.totalEvents || 0} metric event(s) recorded.` };
     if (id === "connectors.registry") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.count || 0} connector(s), ${target.details.enabled || 0} enabled.` };
@@ -456,10 +525,13 @@ export class BackendDockingStation {
     if (id === "control.plane") return { ok: target.health === "ok", id, status: target.status, message: "AI control plane is available." };
     if (id === "events.local-jsonl") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.total || 0} event(s) recorded.` };
     if (id === "policy.local-json") return { ok: target.health === "ok", id, status: target.status, message: `Policy ${target.details.configured ? "configured" : "using defaults"}.` };
+    if (id === "policy.decision-point") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.decision || "unknown"} sample decision.` };
+    if (id === "risk.scorer") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.level || "unknown"} sample risk.` };
     if (id === "context.budget") return { ok: target.health === "ok", id, status: target.status, message: "Context budget manager is available." };
     if (id === "model.mesh") return { ok: target.health === "ok", id, status: target.status, message: `${target.capabilities.length} model role(s) available.` };
     if (id === "learning.feedback") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.total || 0} feedback event(s).` };
     if (id === "workflow.state") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.total || 0} workflow state(s).` };
+    if (id === "run.ledger") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.total || 0} run ledger record(s).` };
     if (id === "artifacts.local-store") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.total || 0} artifact(s).` };
     if (id === "evals.backend" && this.evalRunner) {
       const result = await this.evalRunner.run();
@@ -601,6 +673,20 @@ async function testTavilySearch() {
     id: "search.tavily",
     status: "online",
     message: `${data.results?.length || 0} result(s) returned.`
+  };
+}
+
+async function testDuckDuckGoSearch() {
+  const url = new URL("https://api.duckduckgo.com/");
+  url.searchParams.set("q", "Jarvis AI");
+  url.searchParams.set("format", "json");
+  url.searchParams.set("no_html", "1");
+  const data = await fetchJson(url.toString(), { timeoutMs: 8000 });
+  return {
+    ok: true,
+    id: "search.duckduckgo",
+    status: "online",
+    message: `${data.Heading || "DuckDuckGo"} fallback search responded.`
   };
 }
 

@@ -33,6 +33,9 @@ import { PolicyStore } from "../../packages/policy/index.js";
 import { WorkflowStateStore } from "../../packages/workflow-state/index.js";
 import { ArtifactStore } from "../../packages/artifacts/index.js";
 import { AIControlPlane } from "../../packages/control-plane/index.js";
+import { RiskScorer, classifyFailure } from "../../packages/risk/index.js";
+import { PolicyDecisionPoint } from "../../packages/policy/index.js";
+import { RunLedger } from "../../packages/run-ledger/index.js";
 
 const projectRoot = process.cwd();
 loadEnv({ cwd: projectRoot });
@@ -79,11 +82,14 @@ const modelMesh = new ModelMesh({ feedbackStore });
 const capabilityBus = new CapabilityBus();
 const eventBus = new EventBus({ projectRoot });
 const policyStore = new PolicyStore({ projectRoot });
+const riskScorer = new RiskScorer();
+const policyDecisionPoint = new PolicyDecisionPoint({ policyStore, riskScorer });
 const workflowStateStore = new WorkflowStateStore({ projectRoot });
 const artifactStore = new ArtifactStore({ projectRoot });
+const runLedger = new RunLedger({ projectRoot });
 const modelRouter = new ModelRouter();
 const workflowEngine = new WorkflowEngine();
-const controlPlane = new AIControlPlane({ workflowEngine, modelMesh, contextBudgetManager, capabilityBus, policyStore });
+const controlPlane = new AIControlPlane({ workflowEngine, modelMesh, contextBudgetManager, capabilityBus, policyStore, riskScorer, policyDecisionPoint });
 const reasoningEngine = new ReasoningEngine();
 const searchEngine = new SearchEngine();
 const toolRegistry = createDefaultToolRegistry({
@@ -104,11 +110,14 @@ const toolRegistry = createDefaultToolRegistry({
   eventBus,
   policyStore,
   workflowStateStore,
-  artifactStore
+  artifactStore,
+  riskScorer,
+  policyDecisionPoint,
+  runLedger
 });
 capabilityBus.setToolRegistry(toolRegistry);
 controlPlane.setToolRegistry(toolRegistry).setCapabilityBus(capabilityBus);
-const evalRunner = new BackendEvalRunner({ projectRoot, toolRegistry, memoryStore, searchEngine, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane });
+const evalRunner = new BackendEvalRunner({ projectRoot, toolRegistry, memoryStore, searchEngine, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger });
 const agent = createAgent({
   projectRoot,
   modelRouter,
@@ -125,9 +134,12 @@ const agent = createAgent({
   modelMesh,
   eventBus,
   workflowStateStore,
-  artifactStore
+  artifactStore,
+  riskScorer,
+  policyDecisionPoint,
+  runLedger
 });
-const dockingStation = new BackendDockingStation({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane });
+const dockingStation = new BackendDockingStation({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger });
 toolRegistry.register(new DockingStatusTool(dockingStation));
 toolRegistry.register(new DockingTestTool(dockingStation));
 toolRegistry.register(new EvalsRunTool(evalRunner));
@@ -162,6 +174,11 @@ Commands
   /control <request>    Preview control-plane decision
   /events               Show backend event summary
   /policy               Show active policy-as-code
+  /policy-decide <text> Preview backend policy decision
+  /risk <text>          Score risk for an action
+  /failure <text>       Classify a failure and recovery path
+  /ledger               Show replayable run ledger
+  /replay <run-id>      Replay a run ledger trace
   /workflow-state       Show workflow state records
   /artifacts            Show generated artifacts
   /connectors           List backend connectors
@@ -213,7 +230,7 @@ async function handleSlashCommand(line) {
   }
 
   if (command === "doctor") {
-    const report = await runDoctor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner, preferenceStore, repoIntelligence, feedbackStore, environmentInspector, eventBus, policyStore, workflowStateStore, artifactStore });
+    const report = await runDoctor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner, preferenceStore, repoIntelligence, feedbackStore, environmentInspector, eventBus, policyStore, workflowStateStore, artifactStore, riskScorer, policyDecisionPoint, runLedger });
     console.log(formatDoctorReport(report));
     return true;
   }
@@ -234,7 +251,7 @@ async function handleSlashCommand(line) {
   }
 
   if (command === "engine") {
-    console.log(JSON.stringify(await getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane }), null, 2));
+    console.log(JSON.stringify(await getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger }), null, 2));
     return true;
   }
 
@@ -314,6 +331,34 @@ async function handleSlashCommand(line) {
 
   if (command === "policy") {
     console.log(JSON.stringify(await policyStore.getPolicy(), null, 2));
+    return true;
+  }
+
+  if (command === "policy-decide") {
+    console.log(JSON.stringify(await policyDecisionPoint.decide({ action: arg, command: arg, dataSensitivity: privacyLevel === "private" ? "confidential" : "internal" }), null, 2));
+    return true;
+  }
+
+  if (command === "risk") {
+    console.log(JSON.stringify(riskScorer.scoreAction({ action: arg, command: arg, dataSensitivity: privacyLevel === "private" ? "confidential" : "internal" }), null, 2));
+    return true;
+  }
+
+  if (command === "failure") {
+    console.log(JSON.stringify(classifyFailure({ error: arg }), null, 2));
+    return true;
+  }
+
+  if (command === "ledger") {
+    console.log(JSON.stringify({
+      summary: await runLedger.summary(),
+      records: await runLedger.list({ limit: Number(arg || 20) })
+    }, null, 2));
+    return true;
+  }
+
+  if (command === "replay") {
+    console.log(JSON.stringify(await runLedger.replay(arg), null, 2));
     return true;
   }
 
@@ -473,9 +518,9 @@ async function handleSlashCommand(line) {
 }
 
 function formatProviderStatus(status) {
-  const model = status.openai.configured ? `openai:${status.openai.model}` : status.ollama.configured ? `ollama:${status.ollama.model}` : "local-draft";
+  const model = status.ollama.configured ? `jarvis-local:${status.ollama.model}` : status.openai.enabled ? `hosted-connector:${status.openai.model}` : "local-draft";
   const search = status.search.configured ? status.search.provider : "search-off";
-  const embeddings = status.openaiEmbeddings.configured ? `embeddings:${status.openaiEmbeddings.model}` : "local-embeddings";
+  const embeddings = status.openaiEmbeddings.enabled ? `hosted-embeddings:${status.openaiEmbeddings.model}` : "local-embeddings";
   return `${model}, ${search}, ${embeddings}`;
 }
 

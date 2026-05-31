@@ -3,13 +3,15 @@ import { resolveRuntimeProfile } from "../runtime/index.js";
 import { chooseResponseMode } from "../response/index.js";
 
 export class AIControlPlane {
-  constructor({ workflowEngine, toolRegistry, modelMesh, contextBudgetManager, capabilityBus, policyStore } = {}) {
+  constructor({ workflowEngine, toolRegistry, modelMesh, contextBudgetManager, capabilityBus, policyStore, riskScorer, policyDecisionPoint } = {}) {
     this.workflowEngine = workflowEngine;
     this.toolRegistry = toolRegistry;
     this.modelMesh = modelMesh;
     this.contextBudgetManager = contextBudgetManager;
     this.capabilityBus = capabilityBus;
     this.policyStore = policyStore;
+    this.riskScorer = riskScorer;
+    this.policyDecisionPoint = policyDecisionPoint;
   }
 
   setToolRegistry(toolRegistry) {
@@ -34,6 +36,23 @@ export class AIControlPlane {
     const capabilities = this.capabilityBus ? this.capabilityBus.search(message, { limit: 6 }) : [];
     const contextBudget = this.contextBudgetManager ? this.contextBudgetManager.allocate({ message, taskType, runtimeProfile: profile }) : null;
     const policy = this.policyStore ? await this.policyStore.status() : null;
+    const planRisk = this.riskScorer ? this.riskScorer.scorePlan({
+      steps: plan.map((step, index) => ({
+        id: `plan_${index + 1}`,
+        action: step,
+        tool: toolIntent?.tool || relevantTools[index]?.name,
+        riskLevel: toolIntent ? relevantTools.find((tool) => tool.name === toolIntent.tool)?.riskLevel : relevantTools[index]?.riskLevel,
+        workflowType: workflow?.name
+      }))
+    }) : null;
+    const policyDecision = this.policyDecisionPoint ? await this.policyDecisionPoint.decide({
+      action: message,
+      tool: toolIntent?.tool,
+      args: toolIntent?.args || {},
+      riskLevel: relevantTools.find((tool) => tool.name === toolIntent?.tool)?.riskLevel,
+      workflowType: workflow?.name,
+      dataSensitivity: privacyLevel === "private" ? "confidential" : "internal"
+    }) : null;
     return {
       generated_at: new Date().toISOString(),
       taskType,
@@ -47,7 +66,9 @@ export class AIControlPlane {
       capabilities,
       contextBudget,
       policy,
-      approvalRequired: relevantTools.some((tool) => tool.riskLevel >= 2),
+      planRisk,
+      policyDecision,
+      approvalRequired: Boolean(policyDecision?.requiresApproval) || relevantTools.some((tool) => tool.riskLevel >= 2),
       statePlan: {
         initial: "NEW",
         expected: ["CONTEXT_GATHERING", "PLAN_READY", "EXECUTING", "VERIFYING", "COMPLETE"]

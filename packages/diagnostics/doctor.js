@@ -2,16 +2,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { getProviderStatus } from "../config/env.js";
 
-export async function runDoctor({ projectRoot = process.cwd(), memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner, preferenceStore, repoIntelligence, feedbackStore, environmentInspector, eventBus, policyStore, workflowStateStore, artifactStore } = {}) {
+export async function runDoctor({ projectRoot = process.cwd(), memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner, preferenceStore, repoIntelligence, feedbackStore, environmentInspector, eventBus, policyStore, workflowStateStore, artifactStore, riskScorer, policyDecisionPoint, runLedger } = {}) {
   const checks = [];
   const providers = getProviderStatus();
 
   checks.push(check("Node.js", true, `Running ${process.version}`));
   checks.push(check("Workspace", await exists(projectRoot), projectRoot));
   checks.push(check(".env", await exists(path.join(projectRoot, ".env")), "Optional, used for model and search provider keys.", "warn"));
-  checks.push(check("Model provider", providers.openai.configured || providers.ollama.configured, providerMessage(providers), "warn"));
-  checks.push(check("Search provider", providers.search.configured, providers.search.configured ? providers.search.provider : "Set BRAVE_SEARCH_API_KEY or TAVILY_API_KEY for live research.", "warn"));
-  checks.push(check("Embeddings", true, providers.openaiEmbeddings.configured ? providers.openaiEmbeddings.model : "Using local hash embeddings."));
+  checks.push(check("Model provider", providers.ollama.configured || providers.openai.enabled, providerMessage(providers), "warn"));
+  checks.push(check("Search provider", providers.search.configured, providers.search.configured ? providers.search.provider : "Set DUCKDUCKGO_SEARCH_FALLBACK=true for Jarvis keyless search.", "warn"));
+  checks.push(check("Embeddings", true, providers.openaiEmbeddings.enabled ? providers.openaiEmbeddings.model : "Using Jarvis local hash embeddings."));
   checks.push(check("Web console", await exists(path.join(projectRoot, "apps", "web-console", "index.html")), "Served by npm run console.", "warn"));
 
   if (memoryStore) {
@@ -67,6 +67,16 @@ export async function runDoctor({ projectRoot = process.cwd(), memoryStore, tool
     checks.push(check("Policy-as-code", true, `Network default ${policy.networkDefault}, ${policy.blockedShellPatterns} blocked shell pattern(s).`));
   }
 
+  if (riskScorer) {
+    const risk = riskScorer.scoreAction({ action: "npm install package", command: "npm install package" });
+    checks.push(check("Risk scorer", risk.approvalRequired, `${risk.level} risk (${risk.score}/100) for package install preflight.`, risk.approvalRequired ? "ok" : "warn"));
+  }
+
+  if (policyDecisionPoint) {
+    const decision = await policyDecisionPoint.decide({ action: "download https://example.com/file.zip", networkTarget: "https://example.com/file.zip" });
+    checks.push(check("Policy decision point", decision.requiresApproval || decision.decision === "deny", `${decision.decision}: ${decision.reason}`, decision.requiresApproval || decision.decision === "deny" ? "ok" : "warn"));
+  }
+
   if (workflowStateStore) {
     const workflowState = await workflowStateStore.summary();
     checks.push(check("Workflow state", true, `${workflowState.total} workflow state record(s).`));
@@ -75,6 +85,11 @@ export async function runDoctor({ projectRoot = process.cwd(), memoryStore, tool
   if (artifactStore) {
     const artifacts = await artifactStore.summary();
     checks.push(check("Artifacts", true, `${artifacts.total} artifact(s).`));
+  }
+
+  if (runLedger) {
+    const ledger = await runLedger.summary();
+    checks.push(check("Run ledger", true, `${ledger.total} replayable run ledger record(s).`));
   }
 
   if (dockingStation) {
@@ -130,7 +145,8 @@ async function exists(targetPath) {
 }
 
 function providerMessage(providers) {
-  if (providers.openai.configured) return `OpenAI-compatible model ${providers.openai.model}`;
-  if (providers.ollama.configured) return `Ollama model ${providers.ollama.model}`;
-  return "Set OPENAI_API_KEY or OLLAMA_BASE_URL to enable real model responses.";
+  if (providers.ollama.configured) return `Jarvis local model ${providers.ollama.model}`;
+  if (providers.openai.enabled) return `Optional hosted connector enabled: ${providers.openai.model}`;
+  if (providers.openai.configured) return "Hosted connector is configured but disabled; Jarvis is running local-first.";
+  return "Set OLLAMA_BASE_URL to enable Jarvis local model responses.";
 }

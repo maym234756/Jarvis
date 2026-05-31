@@ -23,7 +23,7 @@ test("agent runs explicit read intent through file tool", async (t) => {
   const toolRegistry = createDefaultToolRegistry({ projectRoot: root, memoryStore });
   const agent = createAgent({
     projectRoot: root,
-    modelRouter: new ModelRouter(),
+    modelRouter: new ModelRouter({ forceLocalDraft: true }),
     toolRegistry,
     memoryStore,
     workflowEngine: new WorkflowEngine(),

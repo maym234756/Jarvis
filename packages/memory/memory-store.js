@@ -170,7 +170,9 @@ export class MemoryStore {
     const embeddings = await embedTexts(chunks.map((chunk) => chunk.text));
     for (let index = 0; index < chunks.length; index++) {
       chunks[index].embedding = embeddings[index];
-      chunks[index].metadata.embedding_model = process.env.OPENAI_EMBEDDING_MODEL || "local-hash-v1";
+      chunks[index].metadata.embedding_model = /^(1|true|yes)$/i.test(process.env.JARVIS_ALLOW_HOSTED_PROVIDERS || "") && process.env.OPENAI_EMBEDDING_MODEL
+        ? process.env.OPENAI_EMBEDDING_MODEL
+        : "local-hash-v1";
     }
   }
 

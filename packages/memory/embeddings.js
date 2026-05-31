@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { hostedProvidersEnabled } from "../config/env.js";
 
 const DEFAULT_DIMENSIONS = 128;
 
@@ -8,7 +9,7 @@ export async function embedText(text, options = {}) {
 }
 
 export async function embedTexts(texts, options = {}) {
-  if (process.env.OPENAI_API_KEY && process.env.OPENAI_EMBEDDING_MODEL) {
+  if (hostedProvidersEnabled() && process.env.OPENAI_API_KEY && process.env.OPENAI_EMBEDDING_MODEL) {
     try {
       return await openAIEmbeddings(texts, options);
     } catch {

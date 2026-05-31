@@ -5,7 +5,7 @@ import { VerificationEngine } from "../verification/index.js";
 import { chooseResponseMode } from "../response/index.js";
 
 export class AgentOrchestrator {
-  constructor({ projectRoot, modelRouter, toolRegistry, memoryStore, workflowEngine, runStore, sessionStore, reasoningEngine, verificationEngine, preferenceStore, contextBudgetManager, feedbackStore, modelMesh, eventBus, workflowStateStore, artifactStore }) {
+  constructor({ projectRoot, modelRouter, toolRegistry, memoryStore, workflowEngine, runStore, sessionStore, reasoningEngine, verificationEngine, preferenceStore, contextBudgetManager, feedbackStore, modelMesh, eventBus, workflowStateStore, artifactStore, riskScorer, policyDecisionPoint, runLedger }) {
     this.projectRoot = projectRoot;
     this.modelRouter = modelRouter;
     this.toolRegistry = toolRegistry;
@@ -22,6 +22,9 @@ export class AgentOrchestrator {
     this.eventBus = eventBus;
     this.workflowStateStore = workflowStateStore;
     this.artifactStore = artifactStore;
+    this.riskScorer = riskScorer;
+    this.policyDecisionPoint = policyDecisionPoint;
+    this.runLedger = runLedger;
   }
 
   async handleMessage(message, context = {}) {
@@ -37,6 +40,20 @@ export class AgentOrchestrator {
       runtimeProfile,
       toolIntent: intent
     }) : null;
+    const runRisk = this.riskScorer ? this.riskScorer.scoreAction({
+      action: message,
+      tool: intent?.tool,
+      args: intent?.args || {},
+      workflowType: workflow?.name,
+      dataSensitivity: context.privacyLevel === "private" ? "confidential" : "internal"
+    }) : null;
+    const policyDecision = this.policyDecisionPoint ? await this.policyDecisionPoint.decide({
+      action: message,
+      tool: intent?.tool,
+      args: intent?.args || {},
+      workflowType: workflow?.name,
+      dataSensitivity: context.privacyLevel === "private" ? "confidential" : "internal"
+    }) : null;
     const run = this.runStore ? await this.runStore.startRun({
       message,
       mode: context.mode || "agent",
@@ -45,6 +62,26 @@ export class AgentOrchestrator {
       taskType,
       workflow
     }) : null;
+    if (run?.id && this.runLedger) {
+      await this.runLedger.start({
+        runId: run.id,
+        userGoal: message,
+        workflow,
+        taskType,
+        modelRoute: modelMeshRoute,
+        riskLevel: runRisk?.level || "unknown"
+      });
+      await this.runLedger.appendEvent(run.id, "decision", {
+        taskType,
+        workflow: workflow?.name || null,
+        plan,
+        responseMode: responseMode.id,
+        runtimeProfile: runtimeProfile.id,
+        modelRoute: modelMeshRoute,
+        risk: runRisk,
+        policyDecision
+      });
+    }
     await this.eventBus?.publish("user.message.received", {
       runId: run?.id || null,
       taskType,
@@ -66,6 +103,16 @@ export class AgentOrchestrator {
     }
 
     const memoryContext = await this.memoryStore.query(message, { limit: 4 });
+    if (run?.id && this.runLedger) {
+      await this.runLedger.appendEvent(run.id, "memory.read", {
+        query: message,
+        matches: memoryContext.map((match) => ({
+          id: match.id || null,
+          source: match.metadata?.source_path || match.citation?.label || null,
+          score: match.score
+        }))
+      });
+    }
     const userPreferences = this.preferenceStore ? await this.preferenceStore.effective() : {};
     const relevantTools = this.toolRegistry.searchTools
       ? this.toolRegistry.searchTools(message, { limit: 6 })
@@ -90,6 +137,7 @@ export class AgentOrchestrator {
           await this.workflowStateStore.transition(run.id, "EXECUTING", { note: `Executing ${intent.tool}`, currentStep: intent.tool, tool: intent.tool });
         }
         await this.eventBus?.publish("tool.called", { runId: run?.id || null, tool: intent.tool, args: safeArgs(intent.args) });
+        await this.runLedger?.appendEvent(run?.id, "tool.called", { tool: intent.tool, args: safeArgs(intent.args) });
         const result = await this.toolRegistry.execute(intent.tool, intent.args, {
           projectRoot: this.projectRoot,
           mode: context.mode,
@@ -102,11 +150,13 @@ export class AgentOrchestrator {
           ok: result.ok,
           pendingApproval: result.pendingApproval || false
         });
+        await this.runLedger?.appendEvent(run?.id, result.pendingApproval ? "approval.requested" : "tool.completed", summarizeToolResult(result));
       } else if (taskType === "research") {
         if (run?.id && this.workflowStateStore) {
           await this.workflowStateStore.transition(run.id, "EXECUTING", { note: "Executing research.run", currentStep: "research.run", tool: "research.run" });
         }
         await this.eventBus?.publish("tool.called", { runId: run?.id || null, tool: "research.run", args: { query: message } });
+        await this.runLedger?.appendEvent(run?.id, "tool.called", { tool: "research.run", args: { query: message } });
         const result = await this.toolRegistry.execute("research.run", { query: message, limit: 5, maxSources: 3 }, {
           projectRoot: this.projectRoot,
           mode: context.mode,
@@ -119,6 +169,7 @@ export class AgentOrchestrator {
           ok: result.ok,
           pendingApproval: result.pendingApproval || false
         });
+        await this.runLedger?.appendEvent(run?.id, result.pendingApproval ? "approval.requested" : "tool.completed", summarizeToolResult(result));
       }
       if (run?.id && this.workflowStateStore) {
         const current = await this.workflowStateStore.get(run.id);
@@ -143,6 +194,11 @@ export class AgentOrchestrator {
         reasoningFrame,
         responseMode,
         runtimeProfile
+      });
+      await this.runLedger?.appendEvent(run?.id, "verification", {
+        status: verificationReport.status,
+        confidence: verificationReport.confidence,
+        summary: verificationReport.summary
       });
       contextBudget = this.contextBudgetManager ? this.contextBudgetManager.allocate({
         message,
@@ -194,7 +250,7 @@ export class AgentOrchestrator {
         });
       }
       if (run?.id && this.artifactStore) {
-        await this.artifactStore.create({
+        const artifact = await this.artifactStore.create({
           type: "markdown",
           title: `Jarvis answer ${run.id}`,
           content: answer,
@@ -206,6 +262,12 @@ export class AgentOrchestrator {
             confidence: verificationReport?.confidence || null
           }
         });
+        await this.runLedger?.appendEvent(run.id, "artifact.created", {
+          id: artifact.id,
+          type: artifact.type,
+          title: artifact.title,
+          verified: artifact.verified
+        });
       }
 
       if (this.runStore && run) {
@@ -215,6 +277,16 @@ export class AgentOrchestrator {
           confidence: verificationReport?.confidence || reasoningFrame.confidence
         });
       }
+      await this.runLedger?.complete(run?.id, {
+        status: verificationReport?.status === "fail" ? "failed" : "completed",
+        final_response: answer,
+        risk_level: runRisk?.level || "unknown",
+        verification: verificationReport ? {
+          status: verificationReport.status,
+          confidence: verificationReport.confidence,
+          summary: verificationReport.summary
+        } : null
+      });
       if (run?.id && this.workflowStateStore) {
         await this.workflowStateStore.transition(run.id, verificationReport?.status === "fail" ? "FAILED" : "COMPLETE", {
           note: verificationReport?.summary || "completed",
@@ -257,6 +329,8 @@ export class AgentOrchestrator {
         verificationReport,
         contextBudget,
         modelMeshRoute,
+        runRisk,
+        policyDecision,
         userPreferences,
         memoryContext,
         relevantTools,
@@ -276,6 +350,11 @@ export class AgentOrchestrator {
         } catch {}
       }
       await this.eventBus?.publish("workflow.failed", { runId: run?.id || null, taskType, error: error.message });
+      await this.runLedger?.complete(run?.id, {
+        status: "failed",
+        error: error.message,
+        failure: { message: error.message }
+      });
       await this.feedbackStore?.record({
         source: "system",
         taskType,
@@ -299,4 +378,17 @@ function safeArgs(args = {}) {
     if (/secret|token|key|password/i.test(key)) copy[key] = "[redacted]";
   }
   return copy;
+}
+
+function summarizeToolResult(result = {}) {
+  return {
+    tool: result.tool,
+    ok: result.ok,
+    pendingApproval: result.pendingApproval || false,
+    approvalId: result.approvalId || null,
+    riskLevel: result.riskLevel,
+    summary: result.summary,
+    error: result.error,
+    duration_ms: result.duration_ms
+  };
 }

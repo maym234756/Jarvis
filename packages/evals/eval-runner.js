@@ -5,9 +5,10 @@ import { classifyShellRisk } from "../tool-runtime/tools/shell-tool.js";
 import { RISK_LEVELS } from "../tool-runtime/policy-engine.js";
 import { resolveRuntimeProfile } from "../runtime/index.js";
 import { VerificationEngine } from "../verification/index.js";
+import { RiskScorer, classifyFailure } from "../risk/index.js";
 
 export class BackendEvalRunner {
-  constructor({ projectRoot = process.cwd(), toolRegistry, memoryStore, searchEngine, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane } = {}) {
+  constructor({ projectRoot = process.cwd(), toolRegistry, memoryStore, searchEngine, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger } = {}) {
     this.projectRoot = projectRoot;
     this.toolRegistry = toolRegistry;
     this.memoryStore = memoryStore;
@@ -25,6 +26,9 @@ export class BackendEvalRunner {
     this.workflowStateStore = workflowStateStore;
     this.artifactStore = artifactStore;
     this.controlPlane = controlPlane;
+    this.riskScorer = riskScorer || new RiskScorer();
+    this.policyDecisionPoint = policyDecisionPoint;
+    this.runLedger = runLedger;
   }
 
   async run({ filter } = {}) {
@@ -227,6 +231,64 @@ export class BackendEvalRunner {
             policy.secrets.neverSendToModel && policy.network.default === "ask",
             "Policy store exposes safe defaults.",
             policy
+          );
+        }
+      },
+      {
+        id: "risk_scorer_flags_package_install",
+        name: "Risk scorer flags package install preflight",
+        category: "safety",
+        run: () => {
+          const risk = this.riskScorer.scoreAction({ action: "npm install left-pad", command: "npm install left-pad" });
+          return pass(
+            risk.approvalRequired && ["medium", "high", "critical"].includes(risk.level),
+            "Risk scorer marks package installs as approval-worthy.",
+            risk
+          );
+        }
+      },
+      {
+        id: "policy_decision_point_requires_network_approval",
+        name: "Policy decision point requires approval for untrusted network",
+        category: "policy",
+        run: async () => {
+          if (!this.policyDecisionPoint) return pass(true, "Policy decision point is optional in this eval context.");
+          const decision = await this.policyDecisionPoint.decide({ action: "download https://example.com/file.zip", networkTarget: "https://example.com/file.zip" });
+          return pass(
+            decision.decision === "approval_required",
+            "Policy decision point approval-gates network actions.",
+            decision
+          );
+        }
+      },
+      {
+        id: "failure_taxonomy_classifies_test_failure",
+        name: "Failure taxonomy maps test failures to recovery",
+        category: "recovery",
+        run: () => {
+          const failure = classifyFailure({ error: "AssertionError: expected 1 to equal 2" });
+          return pass(
+            failure.type === "test_failure" && failure.retryable,
+            "Failure taxonomy classifies test failures as retryable.",
+            failure
+          );
+        }
+      },
+      {
+        id: "run_ledger_replays_trace",
+        name: "Run ledger stores replayable traces",
+        category: "observability",
+        run: async () => {
+          if (!this.runLedger) return pass(true, "Run ledger is optional in this eval context.");
+          const runId = `eval-ledger-${Date.now()}`;
+          await this.runLedger.start({ runId, userGoal: "eval replay", workflow: "EvalWorkflow", taskType: "eval", riskLevel: "low" });
+          await this.runLedger.appendEvent(runId, "tool.called", { tool: "eval.tool", args: { token: "secret" } });
+          await this.runLedger.complete(runId, { final_response: "ok" });
+          const replay = await this.runLedger.replay(runId);
+          return pass(
+            replay.tool_trace.length === 1 && replay.status === "completed" && replay.tool_trace[0].payload.args.token === "[redacted]",
+            "Run ledger stores sanitized replay data.",
+            replay
           );
         }
       },

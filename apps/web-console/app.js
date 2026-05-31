@@ -1,6 +1,7 @@
 const $ = (selector) => document.querySelector(selector);
 const conversation = $("#conversation");
 let activeSessionId = null;
+let liveEventCount = 0;
 
 document.querySelectorAll("nav button").forEach((button) => {
   button.addEventListener("click", () => {
@@ -52,8 +53,11 @@ $("#showEnvironment").addEventListener("click", showEnvironment);
 $("#showFeedback").addEventListener("click", showFeedback);
 $("#showModelMesh").addEventListener("click", showModelMesh);
 $("#showControl").addEventListener("click", showControl);
+$("#showRisk").addEventListener("click", showRisk);
+$("#showPolicyDecision").addEventListener("click", showPolicyDecision);
 $("#showEvents").addEventListener("click", showEvents);
 $("#showPolicy").addEventListener("click", showPolicy);
+$("#showLedger").addEventListener("click", showLedger);
 $("#showWorkflowState").addEventListener("click", showWorkflowState);
 $("#showArtifacts").addEventListener("click", showArtifacts);
 $("#refreshRuns").addEventListener("click", showRuns);
@@ -92,6 +96,28 @@ function formatChatResponse(response) {
     tools,
     response.answer
   ].filter(Boolean).join("\n\n");
+}
+
+function connectEventStream() {
+  if (!window.EventSource) {
+    $("#backendStatus").textContent = "Events unsupported";
+    return;
+  }
+  const stream = new EventSource("/events/stream");
+  stream.addEventListener("ready", () => {
+    $("#backendStatus").textContent = "Live events online";
+  });
+  stream.addEventListener("jarvis-event", (event) => {
+    const data = JSON.parse(event.data);
+    liveEventCount += 1;
+    $("#backendStatus").textContent = `Live ${liveEventCount}`;
+    if (["user.message.received", "tool.called", "approval.requested", "tool.completed", "workflow.completed", "workflow.failed"].includes(data.type)) {
+      addMessage("event", `${data.type}\n${JSON.stringify(data.payload, null, 2)}`);
+    }
+  });
+  stream.onerror = () => {
+    $("#backendStatus").textContent = "Events reconnecting";
+  };
 }
 
 async function refreshApprovals() {
@@ -336,6 +362,33 @@ async function showControl() {
   $("#opsPanel").innerHTML = `<div class="item"><div class="meta">Control Plane Decision</div><pre>${escapeHtml(JSON.stringify(data.decision, null, 2))}</pre></div>`;
 }
 
+async function showRisk() {
+  const action = $("#message").value || "npm install package";
+  const data = await api("/risk/score", {
+    method: "POST",
+    body: {
+      action,
+      command: action,
+      dataSensitivity: $("#privacy").value === "private" ? "confidential" : "internal"
+    }
+  });
+  $("#opsPanel").innerHTML = `<div class="item"><div class="meta">Risk Score</div><pre>${escapeHtml(JSON.stringify(data.risk, null, 2))}</pre></div>`;
+}
+
+async function showPolicyDecision() {
+  const action = $("#message").value || "download https://example.com/file.zip";
+  const data = await api("/policy/decide", {
+    method: "POST",
+    body: {
+      action,
+      command: action,
+      networkTarget: action.includes("http") ? action.match(/https?:\/\/\S+/)?.[0] : undefined,
+      dataSensitivity: $("#privacy").value === "private" ? "confidential" : "internal"
+    }
+  });
+  $("#opsPanel").innerHTML = `<div class="item ${data.decision.decision === "deny" ? "danger" : data.decision.requiresApproval ? "warn" : ""}"><div class="meta">Policy Decision Point</div><pre>${escapeHtml(JSON.stringify(data.decision, null, 2))}</pre></div>`;
+}
+
 async function showEvents() {
   const data = await api("/events?limit=50");
   $("#opsPanel").innerHTML = `
@@ -354,6 +407,26 @@ async function showPolicy() {
   $("#opsPanel").innerHTML = `
     <div class="item"><div class="meta">Policy Status</div><pre>${escapeHtml(JSON.stringify(data.status, null, 2))}</pre></div>
     <div class="item"><div class="meta">Policy</div><pre>${escapeHtml(JSON.stringify(data.policy, null, 2))}</pre></div>
+  `;
+}
+
+async function showLedger() {
+  const data = await api("/run-ledger?limit=30");
+  $("#opsPanel").innerHTML = `
+    <div class="item"><div class="meta">Run Ledger Summary</div><pre>${escapeHtml(JSON.stringify(data.summary, null, 2))}</pre></div>
+    ${data.records.map((record) => `
+      <div class="item ${record.status === "failed" ? "danger" : record.status === "running" ? "warn" : ""}">
+        <div class="meta">${escapeHtml(record.status)} - ${escapeHtml(record.workflow || "")} - ${escapeHtml(record.run_id)}</div>
+        <pre>${escapeHtml(JSON.stringify({
+          goal: record.user_goal,
+          taskType: record.taskType,
+          risk_level: record.risk_level,
+          tools_used: record.tools_used,
+          artifacts: record.artifacts.length,
+          latency_ms: record.latency_ms
+        }, null, 2))}</pre>
+      </div>
+    `).join("") || `<div class="item"><p>No run ledger records.</p></div>`}
   `;
 }
 
@@ -439,10 +512,12 @@ async function init() {
   const health = await api("/health");
   const providers = health.providers;
   $("#providerLine").textContent = [
-    providers.openai.configured ? `OpenAI ${providers.openai.model}` : providers.ollama.configured ? `Ollama ${providers.ollama.model}` : "Local draft",
+    providers.ollama.configured ? `Jarvis local ${providers.ollama.model}` : providers.openai.enabled ? `Hosted connector ${providers.openai.model}` : "Local draft",
     providers.search.configured ? `Search ${providers.search.provider}` : "Search off",
-    providers.openaiEmbeddings.configured ? `Embeddings ${providers.openaiEmbeddings.model}` : "Local memory"
+    providers.openaiEmbeddings.enabled ? `Hosted embeddings ${providers.openaiEmbeddings.model}` : "Local memory"
   ].join(" | ");
+  $("#backendStatus").textContent = `${health.service} online`;
+  connectEventStream();
   await refreshTools();
   await refreshDocks();
   await refreshApprovals();

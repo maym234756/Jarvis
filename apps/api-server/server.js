@@ -34,6 +34,9 @@ import { PolicyStore } from "../../packages/policy/index.js";
 import { WorkflowStateStore } from "../../packages/workflow-state/index.js";
 import { ArtifactStore } from "../../packages/artifacts/index.js";
 import { AIControlPlane } from "../../packages/control-plane/index.js";
+import { RiskScorer, classifyFailure } from "../../packages/risk/index.js";
+import { PolicyDecisionPoint } from "../../packages/policy/index.js";
+import { RunLedger } from "../../packages/run-ledger/index.js";
 
 const projectRoot = process.cwd();
 loadEnv({ cwd: projectRoot });
@@ -54,18 +57,21 @@ const modelMesh = new ModelMesh({ feedbackStore });
 const capabilityBus = new CapabilityBus();
 const eventBus = new EventBus({ projectRoot });
 const policyStore = new PolicyStore({ projectRoot });
+const riskScorer = new RiskScorer();
+const policyDecisionPoint = new PolicyDecisionPoint({ policyStore, riskScorer });
 const workflowStateStore = new WorkflowStateStore({ projectRoot });
 const artifactStore = new ArtifactStore({ projectRoot });
+const runLedger = new RunLedger({ projectRoot });
 const modelRouter = new ModelRouter();
 const workflowEngine = new WorkflowEngine();
-const controlPlane = new AIControlPlane({ workflowEngine, modelMesh, contextBudgetManager, capabilityBus, policyStore });
+const controlPlane = new AIControlPlane({ workflowEngine, modelMesh, contextBudgetManager, capabilityBus, policyStore, riskScorer, policyDecisionPoint });
 const reasoningEngine = new ReasoningEngine();
 const searchEngine = new SearchEngine();
-const toolRegistry = createDefaultToolRegistry({ projectRoot, memoryStore, searchEngine, metricsStore, connectorRegistry, preferenceStore, repoIntelligence, capabilityBus, environmentInspector, contextBudgetManager, feedbackStore, modelMesh, controlPlane, eventBus, policyStore, workflowStateStore, artifactStore });
+const toolRegistry = createDefaultToolRegistry({ projectRoot, memoryStore, searchEngine, metricsStore, connectorRegistry, preferenceStore, repoIntelligence, capabilityBus, environmentInspector, contextBudgetManager, feedbackStore, modelMesh, controlPlane, eventBus, policyStore, workflowStateStore, artifactStore, riskScorer, policyDecisionPoint, runLedger });
 capabilityBus.setToolRegistry(toolRegistry);
 controlPlane.setToolRegistry(toolRegistry).setCapabilityBus(capabilityBus);
-const evalRunner = new BackendEvalRunner({ projectRoot, toolRegistry, memoryStore, searchEngine, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane });
-const dockingStation = new BackendDockingStation({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane });
+const evalRunner = new BackendEvalRunner({ projectRoot, toolRegistry, memoryStore, searchEngine, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger });
+const dockingStation = new BackendDockingStation({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger });
 toolRegistry.register(new DockingStatusTool(dockingStation));
 toolRegistry.register(new DockingTestTool(dockingStation));
 toolRegistry.register(new EvalsRunTool(evalRunner));
@@ -85,7 +91,10 @@ const agent = createAgent({
   modelMesh,
   eventBus,
   workflowStateStore,
-  artifactStore
+  artifactStore,
+  riskScorer,
+  policyDecisionPoint,
+  runLedger
 });
 
 async function readJson(req) {
@@ -98,6 +107,11 @@ async function readJson(req) {
 function send(res, statusCode, payload) {
   res.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(payload, null, 2));
+}
+
+function sendSse(res, event, payload) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
 async function sendStatic(res, fileName, contentType) {
@@ -127,7 +141,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/health") {
-      send(res, 200, { ok: true, service: "jarvis-api", projectRoot, providers: getProviderStatus() });
+      send(res, 200, { ok: true, service: "jarvis-api", instanceId: process.env.JARVIS_INSTANCE_ID || null, projectRoot, providers: getProviderStatus() });
       return;
     }
 
@@ -207,6 +221,27 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/events/stream") {
+      res.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive",
+        "x-accel-buffering": "no"
+      });
+      sendSse(res, "ready", { ok: true, timestamp: new Date().toISOString() });
+      const unsubscribe = eventBus.subscribe((event) => {
+        const type = url.searchParams.get("type");
+        if (!type || event.type === type) sendSse(res, "jarvis-event", event);
+      });
+      const heartbeat = setInterval(() => sendSse(res, "heartbeat", { timestamp: new Date().toISOString() }), 15000);
+      req.on("close", () => {
+        clearInterval(heartbeat);
+        unsubscribe();
+        res.end();
+      });
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/policy") {
       send(res, 200, { ok: true, status: await policyStore.status(), policy: await policyStore.getPolicy() });
       return;
@@ -215,6 +250,46 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/policy") {
       const body = await readJson(req);
       send(res, 200, { ok: true, policy: await policyStore.savePolicy(body) });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/policy/decide") {
+      const body = await readJson(req);
+      send(res, 200, { ok: true, decision: await policyDecisionPoint.decide(body) });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/risk/score") {
+      const body = await readJson(req);
+      send(res, 200, { ok: true, risk: riskScorer.scoreAction(body) });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/failures/classify") {
+      const body = await readJson(req);
+      send(res, 200, { ok: true, failure: classifyFailure(body) });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/run-ledger") {
+      send(res, 200, {
+        ok: true,
+        summary: await runLedger.summary(),
+        records: await runLedger.list({ limit: Number(url.searchParams.get("limit") || 50), status: url.searchParams.get("status") || undefined })
+      });
+      return;
+    }
+
+    const runReplayMatch = url.pathname.match(/^\/run-ledger\/([^/]+)\/replay$/);
+    if (req.method === "GET" && runReplayMatch) {
+      send(res, 200, { ok: true, replay: await runLedger.replay(decodeURIComponent(runReplayMatch[1])) });
+      return;
+    }
+
+    const runLedgerMatch = url.pathname.match(/^\/run-ledger\/([^/]+)$/);
+    if (req.method === "GET" && runLedgerMatch) {
+      const record = await runLedger.get(decodeURIComponent(runLedgerMatch[1]));
+      send(res, record ? 200 : 404, record ? { ok: true, record } : { ok: false, error: "run ledger record not found" });
       return;
     }
 
@@ -263,7 +338,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/doctor") {
-      send(res, 200, await runDoctor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner, preferenceStore, repoIntelligence, feedbackStore, environmentInspector, eventBus, policyStore, workflowStateStore, artifactStore }));
+      send(res, 200, await runDoctor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner, preferenceStore, repoIntelligence, feedbackStore, environmentInspector, eventBus, policyStore, workflowStateStore, artifactStore, riskScorer, policyDecisionPoint, runLedger }));
       return;
     }
 
@@ -273,7 +348,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/engine") {
-      send(res, 200, await getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane }));
+      send(res, 200, await getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger }));
       return;
     }
 

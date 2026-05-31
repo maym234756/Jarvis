@@ -20,6 +20,9 @@ import { WorkflowStateStore } from "../packages/workflow-state/index.js";
 import { ArtifactStore } from "../packages/artifacts/index.js";
 import { AIControlPlane } from "../packages/control-plane/index.js";
 import { WorkflowEngine } from "../packages/workflow-engine/index.js";
+import { RiskScorer } from "../packages/risk/index.js";
+import { PolicyDecisionPoint } from "../packages/policy/index.js";
+import { RunLedger } from "../packages/run-ledger/index.js";
 
 test("backend eval runner checks core runtime behavior", async (t) => {
   const root = path.join(process.cwd(), ".test-output", `evals-${Date.now()}`);
@@ -39,14 +42,19 @@ test("backend eval runner checks core runtime behavior", async (t) => {
   const capabilityBus = new CapabilityBus();
   const eventBus = new EventBus({ projectRoot: root });
   const policyStore = new PolicyStore({ projectRoot: root });
+  const riskScorer = new RiskScorer();
+  const policyDecisionPoint = new PolicyDecisionPoint({ policyStore, riskScorer });
   const workflowStateStore = new WorkflowStateStore({ projectRoot: root });
   const artifactStore = new ArtifactStore({ projectRoot: root });
+  const runLedger = new RunLedger({ projectRoot: root });
   const controlPlane = new AIControlPlane({
     workflowEngine: new WorkflowEngine(),
     modelMesh,
     contextBudgetManager,
     capabilityBus,
-    policyStore
+    policyStore,
+    riskScorer,
+    policyDecisionPoint
   });
   const toolRegistry = createDefaultToolRegistry({
     projectRoot: root,
@@ -63,11 +71,14 @@ test("backend eval runner checks core runtime behavior", async (t) => {
     eventBus,
     policyStore,
     workflowStateStore,
-    artifactStore
+    artifactStore,
+    riskScorer,
+    policyDecisionPoint,
+    runLedger
   });
   capabilityBus.setToolRegistry(toolRegistry);
   controlPlane.setToolRegistry(toolRegistry).setCapabilityBus(capabilityBus);
-  const evalRunner = new BackendEvalRunner({ projectRoot: root, toolRegistry, memoryStore, searchEngine, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane });
+  const evalRunner = new BackendEvalRunner({ projectRoot: root, toolRegistry, memoryStore, searchEngine, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger });
   const report = await evalRunner.run();
 
   assert.equal(report.ok, true);
@@ -75,4 +86,6 @@ test("backend eval runner checks core runtime behavior", async (t) => {
   assert.ok(report.results.some((item) => item.id === "capability_simulates_dangerous_shell"));
   assert.ok(report.results.some((item) => item.id === "control_plane_decides_workflow_and_route"));
   assert.ok(report.results.some((item) => item.id === "artifact_store_creates_metadata"));
+  assert.ok(report.results.some((item) => item.id === "risk_scorer_flags_package_install"));
+  assert.ok(report.results.some((item) => item.id === "run_ledger_replays_trace"));
 });

@@ -12,6 +12,14 @@ npm run chat
 
 This starts a fresh local API/web backend first, then opens the terminal chat. The launcher picks `JARVIS_PORT` or the next available port and prints the backend URL.
 
+Start the Python chat UX:
+
+```powershell
+npm run chat:python
+```
+
+This also starts a fresh backend first. Python 3.11+ must be installed and available as `python`, `python3`, or `py`.
+
 Open only the web console/API:
 
 ```powershell
@@ -66,6 +74,11 @@ Useful terminal commands:
 /control fix failing tests
 /events
 /policy
+/policy-decide download https://example.com/file.zip
+/risk npm install left-pad
+/failure timed out while running tests
+/ledger
+/replay <run-id>
 /workflow-state
 /artifacts
 /connectors
@@ -81,7 +94,7 @@ research current Node.js LTS
 search current Node.js LTS
 ```
 
-Search requires `BRAVE_SEARCH_API_KEY` or `TAVILY_API_KEY` in `.env` or your shell environment. Hosted model use requires `OPENAI_API_KEY`; local model use can point to Ollama with `OLLAMA_BASE_URL`.
+Jarvis is local-first. Its core model runs through the local Ollama runtime with `OLLAMA_BASE_URL` and `OLLAMA_MODEL`; hosted model connectors are optional and disabled unless `JARVIS_ALLOW_HOSTED_PROVIDERS=true` and `JARVIS_MODEL_PROVIDER=openai`. Search uses the keyless DuckDuckGo fallback when `DUCKDUCKGO_SEARCH_FALLBACK=true`, with Brave/Tavily kept as optional connectors.
 
 ## API Server
 
@@ -112,8 +125,15 @@ POST /feedback { "taskType": "coding", "ok": true, "note": "worked" }
 POST /model-mesh/route { "taskType": "coding", "runtimeProfile": "balanced" }
 POST /control-plane/decide { "message": "fix failing tests", "runtimeProfile": "deep" }
 GET  /events
+GET  /events/stream
 GET  /policy
 POST /policy { "network": { "default": "ask" } }
+POST /policy/decide { "action": "download https://example.com/file.zip" }
+POST /risk/score { "command": "npm install left-pad" }
+POST /failures/classify { "error": "Timed out while running tests" }
+GET  /run-ledger
+GET  /run-ledger/:id
+GET  /run-ledger/:id/replay
 GET  /workflow-state
 GET  /artifacts
 POST /artifacts { "type": "markdown", "title": "Note", "content": "# Note" }
@@ -143,10 +163,11 @@ POST /memory/rebuild { "path": "docs" }
 - Terminal chat UX with modes, command history, tool status, and approval prompts.
 - Agent orchestrator with planning, workflow selection, memory retrieval, and tool execution.
 - Agent orchestrator with runtime profiles, response-mode selection, verification reports, planning, workflow selection, memory retrieval, and tool execution.
-- Model router with OpenAI-compatible, Ollama, offline local draft providers, and profile-aware routing signals.
+- Local-first model router for Jarvis local inference, optional hosted connectors, offline local draft fallback, and profile-aware routing signals.
 - File tools, shell tool, web search tool, and memory ingestion/query tools.
 - API approval queue for risky actions requested outside the terminal.
 - Web console for chat, approvals, memory search, and tool inventory.
+- Python Tkinter chat UX with backend ops shortcuts.
 - Doctor diagnostics, saved sessions, and run history.
 - Backend Docking Station for model, search, memory, tool, session, run, approval, API, and console docks.
 - Connector registry for MCP-style backend docks, endpoint health checks, tool filters, and permission policy metadata.
@@ -157,6 +178,10 @@ POST /memory/rebuild { "path": "docs" }
 - AI control plane that previews classification, workflow, model route, tool scope, policy, and context budget for a request.
 - Event bus for observable backend events across user messages, tools, approvals, and workflow completion.
 - Policy-as-code store with default network, shell, file, and secret-safety rules.
+- Policy decision point for allow, deny, approval-required, and sandbox-only preflight decisions.
+- Risk scorer for action and plan risk across network, dependency, filesystem, shell, credential, production-impact, and reversibility signals.
+- Replayable run ledger with input, decisions, memory reads, tool traces, approvals, artifacts, failures, and final responses.
+- Failure taxonomy for recovery playbooks.
 - Workflow state store for agent run state transitions and future pause/resume support.
 - Artifact store for generated reports, logs, and task outputs with metadata.
 - Context budget manager for token allocation, context-pressure detection, and compression recommendations.
@@ -166,6 +191,7 @@ POST /memory/rebuild { "path": "docs" }
 - User preference store with confidence, sensitivity, expiration, and garbage collection.
 - Repository intelligence layer with file maps, symbol indexes, package scripts, language summary, and test hints.
 - Search engine with query planning, result dedupe, source ranking, source fetching, snippets, citations, cache, and prompt-injection scanning.
+- Keyless DuckDuckGo fallback search, with Brave/Tavily available only as optional keyed connectors.
 - Structured answer formatter for clearer tool results, caveats, evidence, and next steps.
 - Context compaction for long saved sessions so older turns become a compact summary while recent turns stay intact.
 - Tool search for routing requests to the most relevant tools without flooding model prompts.

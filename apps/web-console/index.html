@@ -27,6 +27,14 @@
     </aside>
 
     <main>
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Local AI command center</p>
+          <h2>Chat and backend operations</h2>
+        </div>
+        <div class="status-pill" id="backendStatus">Starting</div>
+      </header>
+
       <section id="chat" class="tab active">
         <div class="toolbar">
           <select id="mode">
@@ -99,8 +107,11 @@
           <button id="showFeedback">Feedback</button>
           <button id="showModelMesh">Model Mesh</button>
           <button id="showControl">Control</button>
+          <button id="showRisk">Risk</button>
+          <button id="showPolicyDecision">Policy Decision</button>
           <button id="showEvents">Events</button>
           <button id="showPolicy">Policy</button>
+          <button id="showLedger">Ledger</button>
           <button id="showWorkflowState">State</button>
           <button id="showArtifacts">Artifacts</button>
           <button id="refreshRuns">Runs</button>

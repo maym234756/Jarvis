@@ -24,14 +24,21 @@ export function loadEnv({ cwd = process.cwd(), fileName = ".env" } = {}) {
 }
 
 export function getProviderStatus() {
+  const hostedEnabled = hostedProvidersEnabled();
   return {
+    jarvis: {
+      modelProvider: process.env.JARVIS_MODEL_PROVIDER || "local",
+      hostedProvidersEnabled: hostedEnabled
+    },
     openai: {
       configured: Boolean(process.env.OPENAI_API_KEY),
+      enabled: Boolean(process.env.OPENAI_API_KEY && hostedEnabled),
       model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
       baseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1"
     },
     openaiEmbeddings: {
       configured: Boolean(process.env.OPENAI_API_KEY && process.env.OPENAI_EMBEDDING_MODEL),
+      enabled: Boolean(process.env.OPENAI_API_KEY && process.env.OPENAI_EMBEDDING_MODEL && hostedEnabled),
       model: process.env.OPENAI_EMBEDDING_MODEL || null
     },
     ollama: {
@@ -40,10 +47,18 @@ export function getProviderStatus() {
       baseUrl: process.env.OLLAMA_BASE_URL || null
     },
     search: {
-      provider: process.env.BRAVE_SEARCH_API_KEY ? "brave" : process.env.TAVILY_API_KEY ? "tavily" : null,
-      configured: Boolean(process.env.BRAVE_SEARCH_API_KEY || process.env.TAVILY_API_KEY)
+      provider: process.env.BRAVE_SEARCH_API_KEY ? "brave" : process.env.TAVILY_API_KEY ? "tavily" : duckDuckGoEnabled() ? "duckduckgo" : null,
+      configured: Boolean(process.env.BRAVE_SEARCH_API_KEY || process.env.TAVILY_API_KEY || duckDuckGoEnabled())
     }
   };
+}
+
+export function hostedProvidersEnabled() {
+  return /^(1|true|yes)$/i.test(process.env.JARVIS_ALLOW_HOSTED_PROVIDERS || "");
+}
+
+function duckDuckGoEnabled() {
+  return /^(1|true|yes)$/i.test(process.env.DUCKDUCKGO_SEARCH_FALLBACK || "");
 }
 
 function unquote(value) {

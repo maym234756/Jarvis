@@ -1,19 +1,28 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
+import os from "node:os";
 
 const projectRoot = process.cwd();
+const python = findPython();
+
+if (!python) {
+  console.error("Python 3 was not found. Install Python 3.11+ and make sure python or py is on PATH, then run npm run chat:python again.");
+  process.exit(1);
+}
+
 const requestedPort = Number(process.env.JARVIS_PORT || 8787);
 const maxPort = Number(process.env.JARVIS_PORT_MAX || requestedPort + 20);
 const backendScript = path.join(projectRoot, "apps", "api-server", "server.js");
-const chatScript = path.join(projectRoot, "apps", "terminal-chat", "index.js");
+const pythonApp = path.join(projectRoot, "apps", "python-chat", "jarvis_chat.py");
 const backendInstanceId = randomUUID();
 
 let backend = null;
-let chat = null;
+let frontend = null;
 let shuttingDown = false;
 
 const port = await findAvailablePort(requestedPort, maxPort);
@@ -25,12 +34,7 @@ if (port !== requestedPort) {
 
 backend = spawn(process.execPath, [backendScript], {
   cwd: projectRoot,
-  env: {
-    ...process.env,
-    JARVIS_PORT: String(port),
-    JARVIS_BACKEND_URL: backendUrl,
-    JARVIS_INSTANCE_ID: backendInstanceId
-  },
+  env: { ...process.env, JARVIS_PORT: String(port), JARVIS_BACKEND_URL: backendUrl, JARVIS_INSTANCE_ID: backendInstanceId },
   stdio: ["ignore", "pipe", "pipe"]
 });
 
@@ -45,32 +49,22 @@ backend.stderr.on("data", (chunk) => {
 });
 
 backend.on("exit", (code, signal) => {
-  if (!shuttingDown && !chat) {
-    console.error(`Jarvis backend exited before chat started (${formatExit(code, signal)}).`);
+  if (!shuttingDown && !frontend) {
+    console.error(`Jarvis backend exited before Python chat started (${formatExit(code, signal)}).`);
     process.exit(code || 1);
-  }
-  if (!shuttingDown && chat) {
-    console.error(`Jarvis backend exited while chat was running (${formatExit(code, signal)}).`);
   }
 });
 
 try {
   await waitForHealth(backendUrl, backendInstanceId);
   console.log(`Jarvis backend ready at ${backendUrl}`);
-  console.log("Starting terminal chat...");
-
-  chat = spawn(process.execPath, [chatScript], {
+  console.log("Starting Python chat UX...");
+  frontend = spawn(python.command, [...python.args, pythonApp, backendUrl], {
     cwd: projectRoot,
-    env: {
-      ...process.env,
-      JARVIS_PORT: String(port),
-      JARVIS_BACKEND_URL: backendUrl
-    },
+    env: { ...process.env, JARVIS_PORT: String(port), JARVIS_BACKEND_URL: backendUrl },
     stdio: "inherit"
   });
-
-  chat.on("exit", (code, signal) => shutdown(code ?? signalToExitCode(signal)));
-
+  frontend.on("exit", (code, signal) => shutdown(code ?? signalToExitCode(signal)));
   process.on("SIGINT", () => shutdown(130));
   process.on("SIGTERM", () => shutdown(143));
   process.on("exit", () => stopBackend());
@@ -78,6 +72,38 @@ try {
   console.error(error.message);
   stopBackend();
   process.exit(1);
+}
+
+function findPython() {
+  const candidates = [];
+  if (process.env.PYTHON) candidates.push({ command: process.env.PYTHON, args: [] });
+  candidates.push(...localPythonCandidates());
+  candidates.push({ command: "py", args: ["-3"] });
+  candidates.push({ command: "python", args: [] });
+  candidates.push({ command: "python3", args: [] });
+
+  for (const candidate of candidates) {
+    const result = spawnSync(candidate.command, [...candidate.args, "--version"], { encoding: "utf8", shell: false });
+    const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
+    if (result.status === 0 && /^Python 3\./.test(output)) return candidate;
+  }
+  return null;
+}
+
+function localPythonCandidates() {
+  if (process.platform !== "win32") return [];
+  const roots = [
+    path.join(os.homedir(), "AppData", "Local", "Programs", "Python"),
+    path.join(process.env.LOCALAPPDATA || "", "Programs", "Python")
+  ].filter(Boolean);
+  const candidates = [];
+  for (const root of roots) {
+    for (const version of ["Python314", "Python313", "Python312", "Python311"]) {
+      const exe = path.join(root, version, "python.exe");
+      if (existsSync(exe)) candidates.push({ command: exe, args: [] });
+    }
+  }
+  return candidates;
 }
 
 async function findAvailablePort(start, end) {
@@ -91,9 +117,7 @@ function isPortAvailable(portToCheck) {
   return new Promise((resolve) => {
     const server = net.createServer();
     server.once("error", () => resolve(false));
-    server.once("listening", () => {
-      server.close(() => resolve(true));
-    });
+    server.once("listening", () => server.close(() => resolve(true)));
     server.listen(portToCheck);
   });
 }
@@ -101,14 +125,10 @@ function isPortAvailable(portToCheck) {
 async function waitForHealth(baseUrl, expectedInstanceId) {
   const deadline = Date.now() + Number(process.env.JARVIS_BACKEND_START_TIMEOUT_MS || 15000);
   while (Date.now() < deadline) {
-    if (backend?.exitCode !== null) {
-      throw new Error("Jarvis backend exited before it became healthy.");
-    }
+    if (backend?.exitCode !== null) throw new Error("Jarvis backend exited before it became healthy.");
     if (await healthOk(`${baseUrl}/health`, expectedInstanceId)) {
       await delay(100);
-      if (backend?.exitCode !== null) {
-        throw new Error("Jarvis backend exited after reporting healthy.");
-      }
+      if (backend?.exitCode !== null) throw new Error("Jarvis backend exited after reporting healthy.");
       return;
     }
     await delay(250);
@@ -158,9 +178,7 @@ function shutdown(exitCode = 0) {
 }
 
 function stopBackend() {
-  if (backend && backend.exitCode === null) {
-    backend.kill();
-  }
+  if (backend && backend.exitCode === null) backend.kill();
 }
 
 function signalToExitCode(signal) {
@@ -170,6 +188,5 @@ function signalToExitCode(signal) {
 }
 
 function formatExit(code, signal) {
-  if (signal) return signal;
-  return `code ${code}`;
+  return signal || `code ${code}`;
 }

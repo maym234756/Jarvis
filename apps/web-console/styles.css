@@ -1,14 +1,17 @@
 :root {
   color-scheme: dark;
-  --bg: #101214;
-  --panel: #181d21;
-  --panel-2: #20272d;
-  --text: #f2f5f4;
-  --muted: #9aa7a8;
-  --accent: #57c7a5;
-  --warn: #f4c95d;
-  --danger: #ef6f6c;
-  --line: #2d363d;
+  --bg: #0f1111;
+  --rail: #141817;
+  --panel: #181c1b;
+  --panel-2: #222725;
+  --text: #f5f2ea;
+  --muted: #a7aaa2;
+  --accent: #63c59b;
+  --accent-2: #6ea8d6;
+  --warn: #d8b65d;
+  --danger: #e26d63;
+  --line: #303732;
+  --shadow: rgba(0, 0, 0, 0.28);
 }
 
 * {
@@ -20,7 +23,7 @@ body {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
-  background: var(--bg);
+  background: #0f1111;
   color: var(--text);
   font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
@@ -28,7 +31,8 @@ body {
 aside {
   border-right: 1px solid var(--line);
   padding: 20px;
-  background: #11171a;
+  background: var(--rail);
+  box-shadow: 8px 0 28px var(--shadow);
 }
 
 .brand {
@@ -46,6 +50,8 @@ aside {
   border: 1px solid var(--accent);
   color: var(--accent);
   font-weight: 800;
+  background: #17211d;
+  border-radius: 8px;
 }
 
 h1 {
@@ -78,27 +84,68 @@ input {
 
 button {
   cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
 }
 
 button:hover,
 button.active {
   border-color: var(--accent);
+  background: #27322e;
+}
+
+button:active {
+  transform: translateY(1px);
 }
 
 main {
   min-width: 0;
   padding: 20px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 72px;
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar h2 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0;
+}
+
+.eyebrow {
+  margin-bottom: 3px;
+  color: var(--accent-2);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.status-pill {
+  border: 1px solid #3b5f50;
+  color: #b9f3d8;
+  background: #16231e;
+  border-radius: 999px;
+  padding: 7px 12px;
+  white-space: nowrap;
 }
 
 .tab {
   display: none;
-  height: calc(100vh - 40px);
+  min-height: 0;
 }
 
 .tab.active {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 12px;
+  min-height: 0;
 }
 
 #approvals.tab.active,
@@ -114,6 +161,7 @@ main {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .composer input,
@@ -128,6 +176,7 @@ main {
   background: var(--panel);
   border-radius: 8px;
   padding: 12px;
+  box-shadow: 0 10px 26px var(--shadow);
 }
 
 .log {
@@ -139,13 +188,24 @@ main {
 .message,
 .item {
   border: 1px solid var(--line);
-  background: #141a1e;
+  background: #141816;
   border-radius: 6px;
-  padding: 10px;
+  padding: 12px;
 }
 
 .message.user {
   border-color: #41675e;
+  background: #14201d;
+}
+
+.message.jarvis {
+  border-color: #39485f;
+  background: #151a20;
+}
+
+.message.event {
+  border-color: #4c4a35;
+  background: #181812;
 }
 
 .stack {
@@ -168,10 +228,12 @@ main {
 
 .danger {
   border-color: var(--danger);
+  background: #211615;
 }
 
 .warn {
   border-color: var(--warn);
+  background: #211d14;
 }
 
 pre {
@@ -186,6 +248,10 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  main {
+    padding: 14px;
+  }
+
   aside {
     border-right: 0;
     border-bottom: 1px solid var(--line);
@@ -195,5 +261,10 @@ pre {
   .toolbar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     display: grid;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

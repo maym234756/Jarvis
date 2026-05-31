@@ -1,7 +1,7 @@
 import { listRuntimeProfiles } from "../runtime/index.js";
 import { listResponseModes } from "../response/index.js";
 
-export async function getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane } = {}) {
+export async function getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger } = {}) {
   const repoMap = repoIntelligence ? await repoIntelligence.buildMap({ maxFiles: 250 }) : null;
   const feedback = feedbackStore ? await feedbackStore.summary() : null;
   return {
@@ -42,8 +42,11 @@ export async function getEngineStatus({ modelRouter, reasoningEngine, searchEngi
     feedback,
     events: eventBus ? await eventBus.summary() : null,
     policy: policyStore ? await policyStore.status() : null,
+    policyDecisionPoint: policyDecisionPoint ? await policyDecisionPoint.decide({ action: "status check", dataSensitivity: "internal" }) : null,
+    risk: riskScorer ? riskScorer.scoreAction({ action: "status check", dataSensitivity: "internal" }) : null,
     workflowState: workflowStateStore ? await workflowStateStore.summary() : null,
     artifacts: artifactStore ? await artifactStore.summary() : null,
+    runLedger: runLedger ? await runLedger.summary() : null,
     evals: evalRunner ? await evalRunner.run() : null,
     memory: {
       cache: memoryStore?.cacheStatus ? memoryStore.cacheStatus() : null

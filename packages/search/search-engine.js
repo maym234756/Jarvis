@@ -44,7 +44,7 @@ export class SearchEngine {
         query,
         plan,
         results: [],
-        guidance: "Set BRAVE_SEARCH_API_KEY or TAVILY_API_KEY to enable precise web search."
+        guidance: "Set DUCKDUCKGO_SEARCH_FALLBACK=true for Jarvis keyless search, or add an optional search connector key."
       };
       this.#setCache(cacheKey, result);
       return result;
@@ -186,6 +186,7 @@ export class SearchEngine {
   async #providerSearch(provider, query, limit) {
     if (provider === "brave") return braveSearch(query, limit, this.fetch);
     if (provider === "tavily") return tavilySearch(query, limit, this.fetch);
+    if (provider === "duckduckgo") return duckDuckGoSearch(query, limit, this.fetch);
     return [];
   }
 }
@@ -234,6 +235,7 @@ export function extractSnippets(text, query, { limit = 3, radius = 180 } = {}) {
 function detectProvider() {
   if (process.env.BRAVE_SEARCH_API_KEY) return "brave";
   if (process.env.TAVILY_API_KEY) return "tavily";
+  if (/^(1|true|yes)$/i.test(process.env.DUCKDUCKGO_SEARCH_FALLBACK || "")) return "duckduckgo";
   return "none";
 }
 
@@ -275,6 +277,45 @@ async function tavilySearch(query, limit, fetchImpl) {
     description: stripHtml(item.content),
     raw_provider: "tavily"
   }));
+}
+
+async function duckDuckGoSearch(query, limit, fetchImpl) {
+  const url = new URL("https://api.duckduckgo.com/");
+  url.searchParams.set("q", query);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("no_html", "1");
+  url.searchParams.set("skip_disambig", "1");
+  const response = await fetchImpl(url, { headers: { accept: "application/json" } });
+  if (!response.ok) throw new Error(`DuckDuckGo search failed: ${response.status} ${await response.text()}`);
+  const data = await response.json();
+  const results = [];
+  if (data.AbstractURL) {
+    results.push({
+      title: data.Heading || query,
+      url: data.AbstractURL,
+      description: data.AbstractText || data.Abstract || data.Heading || "",
+      raw_provider: "duckduckgo"
+    });
+  }
+  for (const item of flattenRelatedTopics(data.RelatedTopics || [])) {
+    if (!item.FirstURL) continue;
+    results.push({
+      title: item.Text?.split(" - ")[0] || item.FirstURL,
+      url: item.FirstURL,
+      description: item.Text || "",
+      raw_provider: "duckduckgo"
+    });
+  }
+  return results.slice(0, limit);
+}
+
+function flattenRelatedTopics(items) {
+  const flattened = [];
+  for (const item of items) {
+    if (Array.isArray(item.Topics)) flattened.push(...flattenRelatedTopics(item.Topics));
+    else flattened.push(item);
+  }
+  return flattened;
 }
 
 function dedupeQueries(queries) {

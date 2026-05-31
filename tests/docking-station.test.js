@@ -33,7 +33,8 @@ test("backend docking station reports local docks", async (t) => {
   assert.ok(report.docks.some((dock) => dock.id === "model.router"));
   assert.ok(report.docks.some((dock) => dock.id === "metrics.local-jsonl"));
   assert.equal(memoryTest.ok, true);
-  assert.equal(missingModel.status, "not_configured");
+  assert.equal(missingModel.status, "optional");
+  assert.equal(missingModel.ok, true);
 });
 
 test("docking tools expose station status", async (t) => {

@@ -19,9 +19,9 @@ export class AnswerFormatter {
 
     return [
       section("Answer", request.memoryContext?.length
-        ? `I found ${request.memoryContext.length} related memory chunk(s), but no real LLM provider is configured yet.`
-        : "No real LLM provider is configured yet, so I can only give a structured local draft."),
-      section("Context", "Set OPENAI_API_KEY for an OpenAI-compatible hosted model or OLLAMA_BASE_URL for a local Ollama model."),
+        ? `I found ${request.memoryContext.length} related memory chunk(s), but Jarvis local inference is not connected yet.`
+        : "Jarvis local inference is not connected yet, so I can only give a structured local draft."),
+      section("Context", "Set OLLAMA_BASE_URL and OLLAMA_MODEL so Jarvis can run its local model. Hosted connectors are optional and disabled by default."),
       verification ? section("Verification", verification) : "",
       evidence ? section("Evidence", evidence) : "",
       section("Next Steps", nextSteps || "Use direct tool prompts like `read README.md`, `run npm test`, `docks`, `research query`, or configure a model provider.")
@@ -155,6 +155,11 @@ function toolSpecificLines(result) {
   if (result.tool === "events.summary" && result.events) return ["", JSON.stringify(result.events, null, 2)];
   if (result.tool === "events.list" && result.events) return ["", result.events.map((event) => `${event.timestamp} ${event.type}`).join("\n")];
   if (result.tool === "policy.show" && result.policy) return ["", JSON.stringify(result.policy, null, 2)];
+  if (result.tool === "policy.decide" && result.decision) return ["", JSON.stringify(result.decision, null, 2)];
+  if (result.tool === "risk.score" && result.risk) return ["", JSON.stringify(result.risk, null, 2)];
+  if (result.tool === "failure.classify" && result.failure) return ["", JSON.stringify(result.failure, null, 2)];
+  if (result.tool === "run.ledger" && result.records) return ["", result.records.map((record) => `${record.run_id}: ${record.status} ${record.workflow || ""} ${record.user_goal || ""}`).join("\n") || "No run ledger records."];
+  if (result.tool === "run.replay" && result.replay) return ["", JSON.stringify(result.replay, null, 2)];
   if (result.tool === "workflow.state" && result.states) return ["", result.states.map((state) => `${state.runId}: ${state.status} ${state.workflow}`).join("\n") || "No workflow states."];
   if (result.tool === "artifact.list" && result.artifacts) return ["", result.artifacts.map((artifact) => `${artifact.id}: ${artifact.type} ${artifact.title}`).join("\n") || "No artifacts."];
   if (result.results?.length) {
@@ -211,7 +216,7 @@ function buildNextSteps(request) {
     return "Approve or deny the queued action in the terminal prompt or the web console Approvals tab.";
   }
   if (request.taskType === "research" && !request.toolResults?.some((result) => result.ok && result.citations?.length)) {
-    return "Configure BRAVE_SEARCH_API_KEY or TAVILY_API_KEY for source-backed web answers.";
+    return "Enable DUCKDUCKGO_SEARCH_FALLBACK=true for keyless source-backed web answers, or add an optional search connector key.";
   }
   return "";
 }

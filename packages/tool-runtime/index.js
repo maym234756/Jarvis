@@ -20,8 +20,12 @@ import { EventListTool, EventSummaryTool } from "./tools/event-tool.js";
 import { PolicyShowTool, PolicyStatusTool } from "./tools/policy-tool.js";
 import { WorkflowStateListTool } from "./tools/workflow-state-tool.js";
 import { ArtifactListTool } from "./tools/artifact-tool.js";
+import { RiskScoreTool, FailureClassifyTool } from "./tools/risk-tool.js";
+import { PolicyDecisionTool } from "./tools/policy-decision-tool.js";
+import { RunLedgerListTool, RunReplayTool } from "./tools/run-ledger-tool.js";
+import { classifyFailure } from "../risk/index.js";
 
-export function createDefaultToolRegistry({ projectRoot, memoryStore, approvalProvider, searchEngine, metricsStore, connectorRegistry, preferenceStore, repoIntelligence, capabilityBus, environmentInspector, contextBudgetManager, feedbackStore, modelMesh, controlPlane, eventBus, policyStore, workflowStateStore, artifactStore } = {}) {
+export function createDefaultToolRegistry({ projectRoot, memoryStore, approvalProvider, searchEngine, metricsStore, connectorRegistry, preferenceStore, repoIntelligence, capabilityBus, environmentInspector, contextBudgetManager, feedbackStore, modelMesh, controlPlane, eventBus, policyStore, workflowStateStore, artifactStore, riskScorer, policyDecisionPoint, runLedger } = {}) {
   const approvalQueue = approvalProvider ? null : new ApprovalQueue({ projectRoot });
   const registry = new ToolRegistry({
     projectRoot,
@@ -81,6 +85,15 @@ export function createDefaultToolRegistry({ projectRoot, memoryStore, approvalPr
   }
   if (workflowStateStore) registry.register(new WorkflowStateListTool(workflowStateStore));
   if (artifactStore) registry.register(new ArtifactListTool(artifactStore));
+  if (riskScorer) {
+    registry.register(new RiskScoreTool(riskScorer));
+    registry.register(new FailureClassifyTool(classifyFailure));
+  }
+  if (policyDecisionPoint) registry.register(new PolicyDecisionTool(policyDecisionPoint));
+  if (runLedger) {
+    registry.register(new RunLedgerListTool(runLedger));
+    registry.register(new RunReplayTool(runLedger));
+  }
   registry.register(new ToolSearchTool(registry));
 
   return registry;

@@ -6,6 +6,7 @@ export class EventBus {
     this.projectRoot = projectRoot;
     this.stateDir = path.join(this.projectRoot, ".jarvis", "events");
     this.eventsPath = path.join(this.stateDir, "events.jsonl");
+    this.subscribers = new Set();
   }
 
   async publish(type, payload = {}) {
@@ -17,7 +18,13 @@ export class EventBus {
     };
     await fs.promises.mkdir(this.stateDir, { recursive: true });
     await fs.promises.appendFile(this.eventsPath, `${JSON.stringify(event)}\n`, "utf8");
+    this.#emit(event);
     return event;
+  }
+
+  subscribe(listener) {
+    this.subscribers.add(listener);
+    return () => this.subscribers.delete(listener);
   }
 
   async list({ limit = 100, type } = {}) {
@@ -47,6 +54,16 @@ export class EventBus {
     } catch (error) {
       if (error.code === "ENOENT") return [];
       throw error;
+    }
+  }
+
+  #emit(event) {
+    for (const listener of this.subscribers) {
+      try {
+        listener(event);
+      } catch {
+        this.subscribers.delete(listener);
+      }
     }
   }
 }
