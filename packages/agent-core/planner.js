@@ -49,8 +49,62 @@ export function parseToolIntent(message) {
   match = text.match(/^(?:tool search|find tool|which tool|tools for)\s+(.+)$/i);
   if (match) return { tool: "tool.search", args: { query: match[1].trim(), limit: 8 } };
 
+  match = text.match(/^(?:capabilities|capability list)$/i);
+  if (match) return { tool: "capability.list", args: {} };
+
+  match = text.match(/^(?:capability search|capabilities for)\s+(.+)$/i);
+  if (match) return { tool: "capability.search", args: { query: match[1].trim(), limit: 8 } };
+
+  match = text.match(/^(?:simulate run|simulate command)\s+([\s\S]+)$/i);
+  if (match) return { tool: "capability.simulate", args: { tool: "shell.run", args: { command: match[1].trim() } } };
+
   match = text.match(/^(?:evals|run evals|backend evals)(?:\s+(.+))?$/i);
   if (match) return { tool: "evals.run", args: { filter: match[1]?.trim() || undefined } };
+
+  match = text.match(/^(?:preferences|preference list|user preferences)$/i);
+  if (match) return { tool: "preferences.get", args: {} };
+
+  match = text.match(/^preference set\s+([a-z0-9._ -]+?)\s*:\s*(.+)$/i);
+  if (match) return { tool: "preferences.set", args: { key: match[1].trim(), value: match[2].trim() } };
+
+  match = text.match(/^(?:preference gc|preferences gc)$/i);
+  if (match) return { tool: "preferences.gc", args: {} };
+
+  match = text.match(/^(?:repo map|repository map|code map)(?:\s+(\d+))?$/i);
+  if (match) return { tool: "repo.map", args: { maxFiles: match[1] ? Number(match[1]) : undefined } };
+
+  match = text.match(/^(?:environment|env inspect|inspect environment)$/i);
+  if (match) return { tool: "environment.inspect", args: {} };
+
+  match = text.match(/^(?:context budget|budget context)(?:\s+(\w+))?$/i);
+  if (match) return { tool: "context.budget", args: { taskType: match[1]?.trim() || "chat" } };
+
+  match = text.match(/^(?:feedback summary|learning summary)$/i);
+  if (match) return { tool: "feedback.summary", args: {} };
+
+  match = text.match(/^feedback\s+(.+)$/i);
+  if (match) return { tool: "feedback.record", args: { note: match[1].trim(), source: "user", taskType: "user-feedback" } };
+
+  match = text.match(/^(?:model mesh|model route)(?:\s+(\w+))?$/i);
+  if (match) return { tool: "modelmesh.route", args: { taskType: match[1]?.trim() || "chat" } };
+
+  match = text.match(/^(?:control decide|control plane)\s+(.+)$/i);
+  if (match) return { tool: "control.decide", args: { message: match[1].trim() } };
+
+  match = text.match(/^(?:events|event summary)$/i);
+  if (match) return { tool: "events.summary", args: {} };
+
+  match = text.match(/^event list(?:\s+(\d+))?$/i);
+  if (match) return { tool: "events.list", args: { limit: match[1] ? Number(match[1]) : 20 } };
+
+  match = text.match(/^(?:policy|policy show)$/i);
+  if (match) return { tool: "policy.show", args: {} };
+
+  match = text.match(/^workflow state$/i);
+  if (match) return { tool: "workflow.state", args: {} };
+
+  match = text.match(/^(?:artifacts|artifact list)$/i);
+  if (match) return { tool: "artifact.list", args: {} };
 
   match = text.match(/^ingest\s+(.+)$/i);
   if (match) return { tool: "memory.ingest", args: { path: match[1].trim() } };

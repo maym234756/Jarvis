@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getProviderStatus } from "../config/env.js";
+import { listRuntimeProfiles } from "../runtime/index.js";
 
 export class BackendDockingStation {
-  constructor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner } = {}) {
+  constructor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane } = {}) {
     this.projectRoot = projectRoot || process.cwd();
     this.memoryStore = memoryStore;
     this.toolRegistry = toolRegistry;
@@ -16,6 +17,19 @@ export class BackendDockingStation {
     this.metricsStore = metricsStore;
     this.connectorRegistry = connectorRegistry;
     this.evalRunner = evalRunner;
+    this.preferenceStore = preferenceStore;
+    this.repoIntelligence = repoIntelligence;
+    this.verificationEngine = verificationEngine;
+    this.contextBudgetManager = contextBudgetManager;
+    this.environmentInspector = environmentInspector;
+    this.capabilityBus = capabilityBus;
+    this.feedbackStore = feedbackStore;
+    this.modelMesh = modelMesh;
+    this.eventBus = eventBus;
+    this.policyStore = policyStore;
+    this.workflowStateStore = workflowStateStore;
+    this.artifactStore = artifactStore;
+    this.controlPlane = controlPlane;
     this.stateDir = path.join(this.projectRoot, ".jarvis", "docking");
     this.reportPath = path.join(this.stateDir, "last-report.json");
   }
@@ -41,6 +55,14 @@ export class BackendDockingStation {
     const runStats = this.runStore ? await this.runStore.stats() : null;
     const sessions = this.sessionStore ? await this.sessionStore.listSessions({ limit: 1000 }) : [];
     const connectorStatus = this.connectorRegistry ? await this.connectorRegistry.status() : null;
+    const preferenceStats = this.preferenceStore ? await this.preferenceStore.stats() : null;
+    const repoMap = this.repoIntelligence ? await this.repoIntelligence.buildMap({ maxFiles: 250 }) : null;
+    const feedbackSummary = this.feedbackStore ? await this.feedbackStore.summary() : null;
+    const environment = this.environmentInspector ? await this.environmentInspector.inspect() : null;
+    const eventSummary = this.eventBus ? await this.eventBus.summary() : null;
+    const policyStatus = this.policyStore ? await this.policyStore.status() : null;
+    const workflowStateSummary = this.workflowStateStore ? await this.workflowStateStore.summary() : null;
+    const artifactSummary = this.artifactStore ? await this.artifactStore.summary() : null;
     const port = Number(process.env.JARVIS_PORT || 8787);
 
     return [
@@ -78,6 +100,76 @@ export class BackendDockingStation {
         status: this.reasoningEngine ? "online" : "offline",
         health: this.reasoningEngine ? "ok" : "warn",
         capabilities: ["task-traits", "evidence-needs", "risk-notes", "answer-contracts", "logic-graph"]
+      }),
+      dock({
+        id: "engine.verification",
+        name: "Verification Engine",
+        type: "engine",
+        status: this.verificationEngine ? "online" : "offline",
+        health: this.verificationEngine ? "ok" : "warn",
+        capabilities: ["plan-checks", "tool-result-checks", "citation-checks", "coding-verification-notes", "confidence-labels"]
+      }),
+      dock({
+        id: "runtime.profiles",
+        name: "Runtime Profiles",
+        type: "runtime",
+        status: "available",
+        health: "ok",
+        capabilities: listRuntimeProfiles().map((profile) => profile.id),
+        details: { profiles: listRuntimeProfiles() }
+      }),
+      dock({
+        id: "runtime.environment",
+        name: "Environment Inspector",
+        type: "runtime",
+        status: this.environmentInspector ? "online" : "offline",
+        health: this.environmentInspector ? "ok" : "warn",
+        capabilities: ["os-detection", "shell-detection", "package-manager", "git-status", "resource-summary"],
+        details: environment ? { os: environment.os, packageManager: environment.packageManager, git: environment.git, resources: environment.resources } : {}
+      }),
+      dock({
+        id: "control.plane",
+        name: "AI Control Plane",
+        type: "core",
+        status: this.controlPlane ? "online" : "offline",
+        health: this.controlPlane ? "ok" : "warn",
+        capabilities: ["intent-routing", "workflow-selection", "model-route-preview", "tool-scope", "policy-context", "context-budget"]
+      }),
+      dock({
+        id: "events.local-jsonl",
+        name: "Event Bus",
+        type: "observability",
+        status: this.eventBus ? "online" : "offline",
+        health: this.eventBus ? "ok" : "warn",
+        endpoint: path.join(this.projectRoot, ".jarvis", "events", "events.jsonl"),
+        capabilities: ["event-log", "workflow-events", "tool-events", "observability"],
+        details: eventSummary || {}
+      }),
+      dock({
+        id: "policy.local-json",
+        name: "Policy-As-Code",
+        type: "safety",
+        status: this.policyStore ? "online" : "offline",
+        health: this.policyStore ? "ok" : "warn",
+        endpoint: path.join(this.projectRoot, ".jarvis", "policy", "policy.json"),
+        capabilities: ["network-policy", "shell-policy", "file-policy", "secret-policy"],
+        details: policyStatus || {}
+      }),
+      dock({
+        id: "context.budget",
+        name: "Context Budget Manager",
+        type: "context",
+        status: this.contextBudgetManager ? "online" : "offline",
+        health: this.contextBudgetManager ? "ok" : "warn",
+        capabilities: ["token-budgeting", "context-pressure", "compression-recommendations"]
+      }),
+      dock({
+        id: "model.mesh",
+        name: "Model Mesh Router",
+        type: "model",
+        status: this.modelMesh ? "online" : "offline",
+        health: this.modelMesh ? "ok" : "warn",
+        capabilities: this.modelMesh ? this.modelMesh.listRoles().map((role) => role.id) : []
       }),
       dock({
         id: "engine.search",
@@ -224,6 +316,64 @@ export class BackendDockingStation {
         details: connectorStatus || {}
       }),
       dock({
+        id: "capabilities.bus",
+        name: "Capability Bus",
+        type: "tools",
+        status: this.capabilityBus ? "online" : "offline",
+        health: this.capabilityBus ? "ok" : "warn",
+        capabilities: ["tool-contracts", "capability-search", "simulation", "risk-preview"],
+        details: { contracts: this.capabilityBus ? this.capabilityBus.listCapabilities().length : 0 }
+      }),
+      dock({
+        id: "preferences.local-json",
+        name: "User Preference Store",
+        type: "memory",
+        status: this.preferenceStore ? "online" : "offline",
+        health: this.preferenceStore ? "ok" : "warn",
+        endpoint: path.join(this.projectRoot, ".jarvis", "preferences", "user.json"),
+        capabilities: ["user-preferences", "confidence", "expiration", "garbage-collection", "sensitivity-labels"],
+        details: preferenceStats || {}
+      }),
+      dock({
+        id: "repo.intelligence",
+        name: "Repository Intelligence",
+        type: "code",
+        status: this.repoIntelligence ? "online" : "offline",
+        health: this.repoIntelligence ? "ok" : "warn",
+        capabilities: ["file-map", "symbol-index", "package-scripts", "test-map", "language-summary"],
+        details: repoMap ? { summary: repoMap.summary, tests: repoMap.tests.scripts, languages: repoMap.languages } : {}
+      }),
+      dock({
+        id: "workflow.state",
+        name: "Workflow State Store",
+        type: "state",
+        status: this.workflowStateStore ? "online" : "offline",
+        health: this.workflowStateStore ? "ok" : "warn",
+        endpoint: path.join(this.projectRoot, ".jarvis", "workflow-state"),
+        capabilities: ["agent-state", "pause-resume-foundation", "state-transitions", "audit"],
+        details: workflowStateSummary || {}
+      }),
+      dock({
+        id: "artifacts.local-store",
+        name: "Artifact Store",
+        type: "state",
+        status: this.artifactStore ? "online" : "offline",
+        health: this.artifactStore ? "ok" : "warn",
+        endpoint: path.join(this.projectRoot, ".jarvis", "artifacts"),
+        capabilities: ["reports", "logs", "generated-outputs", "artifact-metadata"],
+        details: artifactSummary || {}
+      }),
+      dock({
+        id: "learning.feedback",
+        name: "Feedback Learning Loop",
+        type: "quality",
+        status: this.feedbackStore ? "online" : "offline",
+        health: this.feedbackStore ? "ok" : "warn",
+        endpoint: path.join(this.projectRoot, ".jarvis", "feedback", "events.jsonl"),
+        capabilities: ["outcome-tracking", "route-feedback", "user-feedback", "success-rate"],
+        details: feedbackSummary || {}
+      }),
+      dock({
         id: "evals.backend",
         name: "Backend Evals",
         type: "quality",
@@ -297,6 +447,20 @@ export class BackendDockingStation {
     if (id === "memory.local-jsonl") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.chunks || 0} chunk(s) available.` };
     if (id === "metrics.local-jsonl") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.totalEvents || 0} metric event(s) recorded.` };
     if (id === "connectors.registry") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.count || 0} connector(s), ${target.details.enabled || 0} enabled.` };
+    if (id === "capabilities.bus") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.contracts || 0} capability contract(s).` };
+    if (id === "preferences.local-json") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.active || 0} active preference(s).` };
+    if (id === "repo.intelligence") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.summary?.files || 0} mapped file(s), ${target.details.summary?.codeFiles || 0} code file(s).` };
+    if (id === "engine.verification") return { ok: target.health === "ok", id, status: target.status, message: "Verification engine is available." };
+    if (id === "runtime.profiles") return { ok: true, id, status: target.status, message: `${target.capabilities.length} runtime profile(s) available.` };
+    if (id === "runtime.environment") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.os?.platform || "unknown"} environment inspected.` };
+    if (id === "control.plane") return { ok: target.health === "ok", id, status: target.status, message: "AI control plane is available." };
+    if (id === "events.local-jsonl") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.total || 0} event(s) recorded.` };
+    if (id === "policy.local-json") return { ok: target.health === "ok", id, status: target.status, message: `Policy ${target.details.configured ? "configured" : "using defaults"}.` };
+    if (id === "context.budget") return { ok: target.health === "ok", id, status: target.status, message: "Context budget manager is available." };
+    if (id === "model.mesh") return { ok: target.health === "ok", id, status: target.status, message: `${target.capabilities.length} model role(s) available.` };
+    if (id === "learning.feedback") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.total || 0} feedback event(s).` };
+    if (id === "workflow.state") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.total || 0} workflow state(s).` };
+    if (id === "artifacts.local-store") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.total || 0} artifact(s).` };
     if (id === "evals.backend" && this.evalRunner) {
       const result = await this.evalRunner.run();
       return { ok: result.ok, id, status: result.ok ? "passing" : "failing", message: result.summary, result };

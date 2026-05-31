@@ -24,6 +24,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
       message,
       mode: $("#mode").value,
       privacyLevel: $("#privacy").value,
+      runtimeProfile: $("#runtimeProfile").value,
       sessionId: activeSessionId,
       title: "Jarvis web session"
     }
@@ -44,6 +45,17 @@ $("#showEngine").addEventListener("click", showEngine);
 $("#showMetrics").addEventListener("click", showMetrics);
 $("#showEvals").addEventListener("click", showEvals);
 $("#showConnectors").addEventListener("click", showConnectors);
+$("#showPreferences").addEventListener("click", showPreferences);
+$("#showRepo").addEventListener("click", showRepo);
+$("#showCapabilities").addEventListener("click", showCapabilities);
+$("#showEnvironment").addEventListener("click", showEnvironment);
+$("#showFeedback").addEventListener("click", showFeedback);
+$("#showModelMesh").addEventListener("click", showModelMesh);
+$("#showControl").addEventListener("click", showControl);
+$("#showEvents").addEventListener("click", showEvents);
+$("#showPolicy").addEventListener("click", showPolicy);
+$("#showWorkflowState").addEventListener("click", showWorkflowState);
+$("#showArtifacts").addEventListener("click", showArtifacts);
 $("#refreshRuns").addEventListener("click", showRuns);
 $("#refreshSessions").addEventListener("click", showSessions);
 $("#newSession").addEventListener("click", createSession);
@@ -237,6 +249,137 @@ async function showConnectors() {
         <pre>${escapeHtml(JSON.stringify(connector, null, 2))}</pre>
       </div>
     `).join("") || `<div class="item"><p>No connectors registered.</p></div>`}
+  `;
+}
+
+async function showPreferences() {
+  const data = await api("/preferences");
+  $("#opsPanel").innerHTML = `
+    <div class="item"><div class="meta">User Preferences</div><pre>${escapeHtml(JSON.stringify(data.stats, null, 2))}</pre></div>
+    ${data.preferences.map((preference) => `
+      <div class="item">
+        <div class="meta">${escapeHtml(preference.key)} - confidence ${escapeHtml(preference.confidence)}</div>
+        <pre>${escapeHtml(preference.value)}</pre>
+      </div>
+    `).join("") || `<div class="item"><p>No active preferences.</p></div>`}
+  `;
+}
+
+async function showRepo() {
+  const data = await api("/repo?maxFiles=300");
+  $("#opsPanel").innerHTML = `
+    <div class="item"><div class="meta">Repository Intelligence</div><pre>${escapeHtml(JSON.stringify(data.map.summary, null, 2))}</pre></div>
+    <div class="item"><div class="meta">Tests</div><pre>${escapeHtml(JSON.stringify(data.map.tests, null, 2))}</pre></div>
+    <div class="item"><div class="meta">Symbols</div><pre>${escapeHtml(data.map.symbols.slice(0, 60).map((symbol) => `${symbol.kind} ${symbol.name} - ${symbol.path}`).join("\n"))}</pre></div>
+  `;
+}
+
+async function showCapabilities() {
+  const data = await api("/capabilities");
+  $("#opsPanel").innerHTML = `
+    <div class="item"><div class="meta">Capability Bus</div><pre>${escapeHtml(`${data.capabilities.length} contracts`)}</pre></div>
+    ${data.capabilities.map((item) => `
+      <div class="item">
+        <div class="meta">Tier ${escapeHtml(item.riskLevel)} - ${escapeHtml(item.name)}</div>
+        <pre>${escapeHtml(JSON.stringify({
+          capabilities: item.capabilities,
+          preconditions: item.contract.preconditions,
+          postconditions: item.contract.postconditions,
+          rollback: item.contract.rollback,
+          simulationSupported: item.contract.simulationSupported
+        }, null, 2))}</pre>
+      </div>
+    `).join("")}
+  `;
+}
+
+async function showEnvironment() {
+  const data = await api("/environment");
+  $("#opsPanel").innerHTML = `<div class="item"><div class="meta">Environment</div><pre>${escapeHtml(JSON.stringify(data.environment, null, 2))}</pre></div>`;
+}
+
+async function showFeedback() {
+  const data = await api("/feedback?limit=30");
+  $("#opsPanel").innerHTML = `
+    <div class="item"><div class="meta">Feedback Summary</div><pre>${escapeHtml(JSON.stringify(data.summary, null, 2))}</pre></div>
+    ${data.events.map((event) => `
+      <div class="item ${event.ok ? "" : "warn"}">
+        <div class="meta">${escapeHtml(event.timestamp)} - ${escapeHtml(event.taskType)} - ${escapeHtml(event.source)}</div>
+        <pre>${escapeHtml(JSON.stringify(event, null, 2))}</pre>
+      </div>
+    `).join("")}
+  `;
+}
+
+async function showModelMesh() {
+  const data = await api("/model-mesh/route", {
+    method: "POST",
+    body: {
+      taskType: $("#mode").value === "code" ? "coding" : $("#mode").value,
+      runtimeProfile: $("#runtimeProfile").value,
+      privacyLevel: $("#privacy").value
+    }
+  });
+  $("#opsPanel").innerHTML = `<div class="item"><div class="meta">Model Mesh Route</div><pre>${escapeHtml(JSON.stringify(data.route, null, 2))}</pre></div>`;
+}
+
+async function showControl() {
+  const data = await api("/control-plane/decide", {
+    method: "POST",
+    body: {
+      message: $("#message").value || "status check",
+      mode: $("#mode").value,
+      runtimeProfile: $("#runtimeProfile").value,
+      privacyLevel: $("#privacy").value
+    }
+  });
+  $("#opsPanel").innerHTML = `<div class="item"><div class="meta">Control Plane Decision</div><pre>${escapeHtml(JSON.stringify(data.decision, null, 2))}</pre></div>`;
+}
+
+async function showEvents() {
+  const data = await api("/events?limit=50");
+  $("#opsPanel").innerHTML = `
+    <div class="item"><div class="meta">Event Summary</div><pre>${escapeHtml(JSON.stringify(data.summary, null, 2))}</pre></div>
+    ${data.events.map((event) => `
+      <div class="item">
+        <div class="meta">${escapeHtml(event.timestamp)} - ${escapeHtml(event.type)}</div>
+        <pre>${escapeHtml(JSON.stringify(event.payload, null, 2))}</pre>
+      </div>
+    `).join("")}
+  `;
+}
+
+async function showPolicy() {
+  const data = await api("/policy");
+  $("#opsPanel").innerHTML = `
+    <div class="item"><div class="meta">Policy Status</div><pre>${escapeHtml(JSON.stringify(data.status, null, 2))}</pre></div>
+    <div class="item"><div class="meta">Policy</div><pre>${escapeHtml(JSON.stringify(data.policy, null, 2))}</pre></div>
+  `;
+}
+
+async function showWorkflowState() {
+  const data = await api("/workflow-state?limit=50");
+  $("#opsPanel").innerHTML = `
+    <div class="item"><div class="meta">Workflow State Summary</div><pre>${escapeHtml(JSON.stringify(data.summary, null, 2))}</pre></div>
+    ${data.states.map((state) => `
+      <div class="item">
+        <div class="meta">${escapeHtml(state.status)} - ${escapeHtml(state.runId)}</div>
+        <pre>${escapeHtml(JSON.stringify(state, null, 2))}</pre>
+      </div>
+    `).join("") || `<div class="item"><p>No workflow states.</p></div>`}
+  `;
+}
+
+async function showArtifacts() {
+  const data = await api("/artifacts?limit=50");
+  $("#opsPanel").innerHTML = `
+    <div class="item"><div class="meta">Artifact Summary</div><pre>${escapeHtml(JSON.stringify(data.summary, null, 2))}</pre></div>
+    ${data.artifacts.map((artifact) => `
+      <div class="item">
+        <div class="meta">${escapeHtml(artifact.type)} - ${escapeHtml(artifact.id)}</div>
+        <pre>${escapeHtml(JSON.stringify(artifact, null, 2))}</pre>
+      </div>
+    `).join("") || `<div class="item"><p>No artifacts.</p></div>`}
   `;
 }
 

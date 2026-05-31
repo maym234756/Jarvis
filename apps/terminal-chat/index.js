@@ -19,6 +19,20 @@ import { MetricsStore } from "../../packages/metrics/index.js";
 import { ConnectorRegistry } from "../../packages/connectors/index.js";
 import { BackendEvalRunner, formatEvalReport } from "../../packages/evals/index.js";
 import { EvalsRunTool } from "../../packages/tool-runtime/tools/evals-tool.js";
+import { PreferenceStore } from "../../packages/preferences/index.js";
+import { RepoIntelligence } from "../../packages/repo-intelligence/index.js";
+import { VerificationEngine } from "../../packages/verification/index.js";
+import { listRuntimeProfiles, resolveRuntimeProfile } from "../../packages/runtime/index.js";
+import { CapabilityBus } from "../../packages/capabilities/index.js";
+import { ContextBudgetManager } from "../../packages/context-budget/index.js";
+import { EnvironmentInspector } from "../../packages/environment/index.js";
+import { FeedbackStore } from "../../packages/learning/index.js";
+import { ModelMesh } from "../../packages/model-mesh/index.js";
+import { EventBus } from "../../packages/events/index.js";
+import { PolicyStore } from "../../packages/policy/index.js";
+import { WorkflowStateStore } from "../../packages/workflow-state/index.js";
+import { ArtifactStore } from "../../packages/artifacts/index.js";
+import { AIControlPlane } from "../../packages/control-plane/index.js";
 
 const projectRoot = process.cwd();
 loadEnv({ cwd: projectRoot });
@@ -26,12 +40,14 @@ const rl = readline.createInterface({ input, output });
 
 let mode = "agent";
 let privacyLevel = "project";
+let runtimeProfileName = "balanced";
 let activeSession = null;
 
 function printBanner() {
   console.log("Jarvis AI Platform MVP");
   console.log(`Workspace: ${projectRoot}`);
   console.log(`Providers: ${formatProviderStatus(getProviderStatus())}`);
+  console.log(`Runtime: ${runtimeProfileName}`);
   if (activeSession) console.log(`Session: ${activeSession.title} (${activeSession.id})`);
   console.log("Type /help for commands or /exit to leave.");
 }
@@ -52,8 +68,21 @@ const sessionStore = new SessionStore({ projectRoot });
 const runStore = new RunStore({ projectRoot });
 const metricsStore = new MetricsStore({ projectRoot });
 const connectorRegistry = new ConnectorRegistry({ projectRoot });
+const preferenceStore = new PreferenceStore({ projectRoot });
+const repoIntelligence = new RepoIntelligence({ projectRoot });
+const verificationEngine = new VerificationEngine();
+const contextBudgetManager = new ContextBudgetManager();
+const environmentInspector = new EnvironmentInspector({ projectRoot });
+const feedbackStore = new FeedbackStore({ projectRoot });
+const modelMesh = new ModelMesh({ feedbackStore });
+const capabilityBus = new CapabilityBus();
+const eventBus = new EventBus({ projectRoot });
+const policyStore = new PolicyStore({ projectRoot });
+const workflowStateStore = new WorkflowStateStore({ projectRoot });
+const artifactStore = new ArtifactStore({ projectRoot });
 const modelRouter = new ModelRouter();
 const workflowEngine = new WorkflowEngine();
+const controlPlane = new AIControlPlane({ workflowEngine, modelMesh, contextBudgetManager, capabilityBus, policyStore });
 const reasoningEngine = new ReasoningEngine();
 const searchEngine = new SearchEngine();
 const toolRegistry = createDefaultToolRegistry({
@@ -62,9 +91,23 @@ const toolRegistry = createDefaultToolRegistry({
   approvalProvider: askApproval,
   searchEngine,
   metricsStore,
-  connectorRegistry
+  connectorRegistry,
+  preferenceStore,
+  repoIntelligence,
+  capabilityBus,
+  environmentInspector,
+  contextBudgetManager,
+  feedbackStore,
+  modelMesh,
+  controlPlane,
+  eventBus,
+  policyStore,
+  workflowStateStore,
+  artifactStore
 });
-const evalRunner = new BackendEvalRunner({ projectRoot, toolRegistry, memoryStore, searchEngine });
+capabilityBus.setToolRegistry(toolRegistry);
+controlPlane.setToolRegistry(toolRegistry).setCapabilityBus(capabilityBus);
+const evalRunner = new BackendEvalRunner({ projectRoot, toolRegistry, memoryStore, searchEngine, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane });
 const agent = createAgent({
   projectRoot,
   modelRouter,
@@ -73,9 +116,17 @@ const agent = createAgent({
   workflowEngine,
   sessionStore,
   runStore,
-  reasoningEngine
+  reasoningEngine,
+  verificationEngine,
+  preferenceStore,
+  contextBudgetManager,
+  feedbackStore,
+  modelMesh,
+  eventBus,
+  workflowStateStore,
+  artifactStore
 });
-const dockingStation = new BackendDockingStation({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner });
+const dockingStation = new BackendDockingStation({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane });
 toolRegistry.register(new DockingStatusTool(dockingStation));
 toolRegistry.register(new DockingTestTool(dockingStation));
 toolRegistry.register(new EvalsRunTool(evalRunner));
@@ -87,6 +138,7 @@ Commands
   /tools                List available tools
   /mode <name>          Set mode: chat, code, research, agent, admin
   /privacy <level>      Set privacy: public, project, private
+  /profile <name>       Set runtime profile: instant, balanced, deep
   /ingest <path>        Chunk and index a file or directory
   /memory <query>       Search Jarvis memory
   /memory-stats         Show memory index stats
@@ -98,6 +150,19 @@ Commands
   /engine               Show engine backend status
   /metrics              Show performance metrics
   /evals                Run backend evals
+  /repo                 Show repository intelligence map
+  /preferences          Show user preferences
+  /preference set <k>: <v>
+  /capabilities         Show capability contracts
+  /simulate <command>   Simulate a shell command
+  /environment          Inspect runtime environment
+  /feedback             Show learning-loop feedback
+  /model-mesh <task>    Preview model mesh routing
+  /control <request>    Preview control-plane decision
+  /events               Show backend event summary
+  /policy               Show active policy-as-code
+  /workflow-state       Show workflow state records
+  /artifacts            Show generated artifacts
   /connectors           List backend connectors
   /connector add <id> <url>
   /connector test <id>
@@ -147,7 +212,7 @@ async function handleSlashCommand(line) {
   }
 
   if (command === "doctor") {
-    const report = await runDoctor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner });
+    const report = await runDoctor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner, preferenceStore, repoIntelligence, feedbackStore, environmentInspector, eventBus, policyStore, workflowStateStore, artifactStore });
     console.log(formatDoctorReport(report));
     return true;
   }
@@ -168,7 +233,7 @@ async function handleSlashCommand(line) {
   }
 
   if (command === "engine") {
-    console.log(JSON.stringify(await getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry }), null, 2));
+    console.log(JSON.stringify(await getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane }), null, 2));
     return true;
   }
 
@@ -179,6 +244,91 @@ async function handleSlashCommand(line) {
 
   if (command === "evals") {
     console.log(formatEvalReport(await evalRunner.run({ filter: arg || undefined })));
+    return true;
+  }
+
+  if (command === "repo") {
+    console.log(JSON.stringify(await repoIntelligence.buildMap({ maxFiles: Number(arg || 500) }), null, 2));
+    return true;
+  }
+
+  if (command === "preferences") {
+    console.log(JSON.stringify({
+      stats: await preferenceStore.stats(),
+      preferences: await preferenceStore.list()
+    }, null, 2));
+    return true;
+  }
+
+  if (command === "preference") {
+    const match = arg.match(/^set\s+([a-z0-9._ -]+?)\s*:\s*(.+)$/i);
+    if (match) {
+      console.log(await preferenceStore.set({ key: match[1].trim(), value: match[2].trim() }));
+      return true;
+    }
+    console.log("Usage: /preference set <key>: <value>");
+    return true;
+  }
+
+  if (command === "capabilities") {
+    console.log(JSON.stringify(capabilityBus.listCapabilities(), null, 2));
+    return true;
+  }
+
+  if (command === "simulate") {
+    console.log(JSON.stringify(await capabilityBus.simulate("shell.run", { command: arg }, { projectRoot }), null, 2));
+    return true;
+  }
+
+  if (command === "environment") {
+    console.log(JSON.stringify(await environmentInspector.inspect(), null, 2));
+    return true;
+  }
+
+  if (command === "feedback") {
+    console.log(JSON.stringify({
+      summary: await feedbackStore.summary(),
+      events: await feedbackStore.list({ limit: 20 })
+    }, null, 2));
+    return true;
+  }
+
+  if (command === "model-mesh") {
+    console.log(JSON.stringify(await modelMesh.route({ taskType: arg || "chat", runtimeProfile: runtimeProfileName, privacyLevel }), null, 2));
+    return true;
+  }
+
+  if (command === "control") {
+    console.log(JSON.stringify(await controlPlane.decide({ message: arg, mode, privacyLevel, runtimeProfile: runtimeProfileName }), null, 2));
+    return true;
+  }
+
+  if (command === "events") {
+    console.log(JSON.stringify({
+      summary: await eventBus.summary(),
+      events: await eventBus.list({ limit: 20 })
+    }, null, 2));
+    return true;
+  }
+
+  if (command === "policy") {
+    console.log(JSON.stringify(await policyStore.getPolicy(), null, 2));
+    return true;
+  }
+
+  if (command === "workflow-state") {
+    console.log(JSON.stringify({
+      summary: await workflowStateStore.summary(),
+      states: await workflowStateStore.list({ limit: 20 })
+    }, null, 2));
+    return true;
+  }
+
+  if (command === "artifacts") {
+    console.log(JSON.stringify({
+      summary: await artifactStore.summary(),
+      artifacts: await artifactStore.list({ limit: 20 })
+    }, null, 2));
     return true;
   }
 
@@ -264,6 +414,17 @@ async function handleSlashCommand(line) {
     return true;
   }
 
+  if (command === "profile" || command === "depth") {
+    if (!arg) {
+      console.log(`Current runtime profile: ${runtimeProfileName}`);
+      console.log(listRuntimeProfiles().map((profile) => `${profile.id}: ${profile.label}, ${profile.verificationLevel} verification, ${profile.latencyBudgetMs}ms budget`).join("\n"));
+      return true;
+    }
+    runtimeProfileName = resolveRuntimeProfile(arg).id;
+    console.log(`Runtime profile set to ${runtimeProfileName}`);
+    return true;
+  }
+
   if (command === "privacy") {
     if (!arg) {
       console.log(`Current privacy: ${privacyLevel}`);
@@ -334,6 +495,7 @@ async function main() {
     const response = await agent.handleMessage(line, {
       mode,
       privacyLevel,
+      runtimeProfile: runtimeProfileName,
       projectRoot,
       sessionId: activeSession?.id,
       sessionHistory: session?.messages || [],

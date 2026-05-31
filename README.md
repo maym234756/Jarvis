@@ -50,6 +50,20 @@ Useful terminal commands:
 /engine
 /metrics
 /evals
+/profile deep
+/repo
+/preferences
+/preference set answer.length: concise
+/capabilities
+/simulate npm install left-pad
+/environment
+/feedback
+/model-mesh coding
+/control fix failing tests
+/events
+/policy
+/workflow-state
+/artifacts
 /connectors
 /connector add local.mcp http://localhost:3333
 /session new project work
@@ -83,10 +97,30 @@ POST /docking/:id/test
 GET  /engine
 GET  /metrics
 GET  /evals
+GET  /runtime-profiles
+GET  /capabilities
+POST /capabilities/search { "query": "run tests" }
+POST /capabilities/simulate { "tool": "shell.run", "args": { "command": "npm install left-pad" } }
+GET  /environment
+POST /context-budget { "taskType": "coding", "runtimeProfile": "deep" }
+GET  /feedback
+POST /feedback { "taskType": "coding", "ok": true, "note": "worked" }
+POST /model-mesh/route { "taskType": "coding", "runtimeProfile": "balanced" }
+POST /control-plane/decide { "message": "fix failing tests", "runtimeProfile": "deep" }
+GET  /events
+GET  /policy
+POST /policy { "network": { "default": "ask" } }
+GET  /workflow-state
+GET  /artifacts
+POST /artifacts { "type": "markdown", "title": "Note", "content": "# Note" }
+GET  /preferences
+POST /preferences { "key": "answer.length", "value": "concise" }
+POST /preferences/gc
+GET  /repo
 GET  /connectors
 POST /connectors { "id": "local.mcp", "url": "http://localhost:3333" }
 POST /connectors/:id/test
-POST /chat    { "message": "read README.md" }
+POST /chat    { "message": "read README.md", "runtimeProfile": "deep" }
 POST /ingest  { "path": "docs" }
 GET  /approvals
 POST /approvals/:id { "approved": true }
@@ -104,7 +138,8 @@ POST /memory/rebuild { "path": "docs" }
 
 - Terminal chat UX with modes, command history, tool status, and approval prompts.
 - Agent orchestrator with planning, workflow selection, memory retrieval, and tool execution.
-- Model router with OpenAI-compatible, Ollama, and offline local draft providers.
+- Agent orchestrator with runtime profiles, response-mode selection, verification reports, planning, workflow selection, memory retrieval, and tool execution.
+- Model router with OpenAI-compatible, Ollama, offline local draft providers, and profile-aware routing signals.
 - File tools, shell tool, web search tool, and memory ingestion/query tools.
 - API approval queue for risky actions requested outside the terminal.
 - Web console for chat, approvals, memory search, and tool inventory.
@@ -112,6 +147,20 @@ POST /memory/rebuild { "path": "docs" }
 - Backend Docking Station for model, search, memory, tool, session, run, approval, API, and console docks.
 - Connector registry for MCP-style backend docks, endpoint health checks, tool filters, and permission policy metadata.
 - Reasoning engine with task traits, evidence needs, risk notes, answer contracts, and logic graphs.
+- Verification engine with plan, tool-result, citation, prompt-injection, and coding verification checks.
+- Runtime profiles for Fast, Balanced, and Deep behavior with latency, cost, tool-call, and verification budgets.
+- Capability bus with tool contracts, capability search, policy previews, and shell-command simulation before execution.
+- AI control plane that previews classification, workflow, model route, tool scope, policy, and context budget for a request.
+- Event bus for observable backend events across user messages, tools, approvals, and workflow completion.
+- Policy-as-code store with default network, shell, file, and secret-safety rules.
+- Workflow state store for agent run state transitions and future pause/resume support.
+- Artifact store for generated reports, logs, and task outputs with metadata.
+- Context budget manager for token allocation, context-pressure detection, and compression recommendations.
+- Environment inspector for OS, shell, package manager, git status, and resource awareness.
+- Model mesh role router for planner/code/critic/security/composer role selection.
+- Feedback learning loop for outcome tracking and future routing signals.
+- User preference store with confidence, sensitivity, expiration, and garbage collection.
+- Repository intelligence layer with file maps, symbol indexes, package scripts, language summary, and test hints.
 - Search engine with query planning, result dedupe, source ranking, source fetching, snippets, citations, cache, and prompt-injection scanning.
 - Structured answer formatter for clearer tool results, caveats, evidence, and next steps.
 - Context compaction for long saved sessions so older turns become a compact summary while recent turns stay intact.
@@ -143,4 +192,4 @@ Saved sessions live in `.jarvis/sessions/`, and agent runs are tracked in `.jarv
 
 The latest Backend Docking Station report is stored at `.jarvis/docking/last-report.json`.
 
-Connector metadata lives in `.jarvis/connectors/connectors.json`. Backend evals can be run with `npm run evals`.
+Connector metadata lives in `.jarvis/connectors/connectors.json`. User preferences live in `.jarvis/preferences/user.json`. Feedback events live in `.jarvis/feedback/events.jsonl`. Events live in `.jarvis/events/events.jsonl`, workflow state in `.jarvis/workflow-state/`, artifacts in `.jarvis/artifacts/`, and policy in `.jarvis/policy/policy.json`. Backend evals can be run with `npm run evals`.

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getProviderStatus } from "../config/env.js";
 
-export async function runDoctor({ projectRoot = process.cwd(), memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner } = {}) {
+export async function runDoctor({ projectRoot = process.cwd(), memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner, preferenceStore, repoIntelligence, feedbackStore, environmentInspector, eventBus, policyStore, workflowStateStore, artifactStore } = {}) {
   const checks = [];
   const providers = getProviderStatus();
 
@@ -35,6 +35,46 @@ export async function runDoctor({ projectRoot = process.cwd(), memoryStore, tool
   if (sessionStore) {
     const sessions = await sessionStore.listSessions({ limit: 1000 });
     checks.push(check("Sessions", true, `${sessions.length} saved session(s).`));
+  }
+
+  if (preferenceStore) {
+    const stats = await preferenceStore.stats();
+    checks.push(check("User preferences", true, `${stats.active} active preference(s), ${stats.expired} expired.`));
+  }
+
+  if (repoIntelligence) {
+    const map = await repoIntelligence.buildMap({ maxFiles: 250 });
+    checks.push(check("Repository intelligence", map.summary.files > 0, `${map.summary.files} mapped file(s), ${map.symbols.length} symbol(s).`, map.summary.files > 0 ? "ok" : "warn"));
+  }
+
+  if (environmentInspector) {
+    const environment = await environmentInspector.inspect();
+    checks.push(check("Environment", true, `${environment.os.platform}/${environment.os.arch}, package manager ${environment.packageManager || "unknown"}, git changed files ${environment.git.changed ?? "n/a"}.`));
+  }
+
+  if (feedbackStore) {
+    const feedback = await feedbackStore.summary();
+    checks.push(check("Feedback learning loop", true, `${feedback.total} event(s), success rate ${feedback.successRate ?? "n/a"}.`));
+  }
+
+  if (eventBus) {
+    const events = await eventBus.summary();
+    checks.push(check("Event bus", true, `${events.total} event(s), ${Object.keys(events.byType).length} event type(s).`));
+  }
+
+  if (policyStore) {
+    const policy = await policyStore.status();
+    checks.push(check("Policy-as-code", true, `Network default ${policy.networkDefault}, ${policy.blockedShellPatterns} blocked shell pattern(s).`));
+  }
+
+  if (workflowStateStore) {
+    const workflowState = await workflowStateStore.summary();
+    checks.push(check("Workflow state", true, `${workflowState.total} workflow state record(s).`));
+  }
+
+  if (artifactStore) {
+    const artifacts = await artifactStore.summary();
+    checks.push(check("Artifacts", true, `${artifacts.total} artifact(s).`));
   }
 
   if (dockingStation) {

@@ -20,6 +20,20 @@ import { MetricsStore } from "../../packages/metrics/index.js";
 import { ConnectorRegistry } from "../../packages/connectors/index.js";
 import { BackendEvalRunner } from "../../packages/evals/index.js";
 import { EvalsRunTool } from "../../packages/tool-runtime/tools/evals-tool.js";
+import { PreferenceStore } from "../../packages/preferences/index.js";
+import { RepoIntelligence } from "../../packages/repo-intelligence/index.js";
+import { VerificationEngine } from "../../packages/verification/index.js";
+import { listRuntimeProfiles } from "../../packages/runtime/index.js";
+import { CapabilityBus } from "../../packages/capabilities/index.js";
+import { ContextBudgetManager } from "../../packages/context-budget/index.js";
+import { EnvironmentInspector } from "../../packages/environment/index.js";
+import { FeedbackStore } from "../../packages/learning/index.js";
+import { ModelMesh } from "../../packages/model-mesh/index.js";
+import { EventBus } from "../../packages/events/index.js";
+import { PolicyStore } from "../../packages/policy/index.js";
+import { WorkflowStateStore } from "../../packages/workflow-state/index.js";
+import { ArtifactStore } from "../../packages/artifacts/index.js";
+import { AIControlPlane } from "../../packages/control-plane/index.js";
 
 const projectRoot = process.cwd();
 loadEnv({ cwd: projectRoot });
@@ -30,13 +44,28 @@ const sessionStore = new SessionStore({ projectRoot });
 const runStore = new RunStore({ projectRoot });
 const metricsStore = new MetricsStore({ projectRoot });
 const connectorRegistry = new ConnectorRegistry({ projectRoot });
+const preferenceStore = new PreferenceStore({ projectRoot });
+const repoIntelligence = new RepoIntelligence({ projectRoot });
+const verificationEngine = new VerificationEngine();
+const contextBudgetManager = new ContextBudgetManager();
+const environmentInspector = new EnvironmentInspector({ projectRoot });
+const feedbackStore = new FeedbackStore({ projectRoot });
+const modelMesh = new ModelMesh({ feedbackStore });
+const capabilityBus = new CapabilityBus();
+const eventBus = new EventBus({ projectRoot });
+const policyStore = new PolicyStore({ projectRoot });
+const workflowStateStore = new WorkflowStateStore({ projectRoot });
+const artifactStore = new ArtifactStore({ projectRoot });
 const modelRouter = new ModelRouter();
 const workflowEngine = new WorkflowEngine();
+const controlPlane = new AIControlPlane({ workflowEngine, modelMesh, contextBudgetManager, capabilityBus, policyStore });
 const reasoningEngine = new ReasoningEngine();
 const searchEngine = new SearchEngine();
-const toolRegistry = createDefaultToolRegistry({ projectRoot, memoryStore, searchEngine, metricsStore, connectorRegistry });
-const evalRunner = new BackendEvalRunner({ projectRoot, toolRegistry, memoryStore, searchEngine });
-const dockingStation = new BackendDockingStation({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner });
+const toolRegistry = createDefaultToolRegistry({ projectRoot, memoryStore, searchEngine, metricsStore, connectorRegistry, preferenceStore, repoIntelligence, capabilityBus, environmentInspector, contextBudgetManager, feedbackStore, modelMesh, controlPlane, eventBus, policyStore, workflowStateStore, artifactStore });
+capabilityBus.setToolRegistry(toolRegistry);
+controlPlane.setToolRegistry(toolRegistry).setCapabilityBus(capabilityBus);
+const evalRunner = new BackendEvalRunner({ projectRoot, toolRegistry, memoryStore, searchEngine, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane });
+const dockingStation = new BackendDockingStation({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane });
 toolRegistry.register(new DockingStatusTool(dockingStation));
 toolRegistry.register(new DockingTestTool(dockingStation));
 toolRegistry.register(new EvalsRunTool(evalRunner));
@@ -48,7 +77,15 @@ const agent = createAgent({
   workflowEngine,
   sessionStore,
   runStore,
-  reasoningEngine
+  reasoningEngine,
+  verificationEngine,
+  preferenceStore,
+  contextBudgetManager,
+  feedbackStore,
+  modelMesh,
+  eventBus,
+  workflowStateStore,
+  artifactStore
 });
 
 async function readJson(req) {
@@ -109,6 +146,116 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/runtime-profiles") {
+      send(res, 200, { ok: true, profiles: listRuntimeProfiles() });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/capabilities") {
+      send(res, 200, { ok: true, capabilities: capabilityBus.listCapabilities() });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/capabilities/search") {
+      const body = await readJson(req);
+      send(res, 200, { ok: true, capabilities: capabilityBus.search(body.query || "", { limit: body.limit || 8 }) });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/capabilities/simulate") {
+      const body = await readJson(req);
+      send(res, 200, await capabilityBus.simulate(body.tool, body.args || {}, { projectRoot }));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/environment") {
+      send(res, 200, { ok: true, environment: await environmentInspector.inspect() });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/context-budget") {
+      const body = await readJson(req);
+      send(res, 200, { ok: true, budget: contextBudgetManager.allocate(body) });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/feedback") {
+      send(res, 200, { ok: true, summary: await feedbackStore.summary(), events: await feedbackStore.list({ limit: Number(url.searchParams.get("limit") || 50), taskType: url.searchParams.get("taskType") || undefined }) });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/feedback") {
+      const body = await readJson(req);
+      send(res, 200, { ok: true, event: await feedbackStore.record({ ...body, source: body.source || "user" }) });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/model-mesh/route") {
+      const body = await readJson(req);
+      send(res, 200, { ok: true, route: await modelMesh.route(body) });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/control-plane/decide") {
+      const body = await readJson(req);
+      send(res, 200, { ok: true, decision: await controlPlane.decide(body) });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/events") {
+      send(res, 200, { ok: true, summary: await eventBus.summary(), events: await eventBus.list({ limit: Number(url.searchParams.get("limit") || 100), type: url.searchParams.get("type") || undefined }) });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/policy") {
+      send(res, 200, { ok: true, status: await policyStore.status(), policy: await policyStore.getPolicy() });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/policy") {
+      const body = await readJson(req);
+      send(res, 200, { ok: true, policy: await policyStore.savePolicy(body) });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/workflow-state") {
+      send(res, 200, { ok: true, summary: await workflowStateStore.summary(), states: await workflowStateStore.list({ limit: Number(url.searchParams.get("limit") || 50) }) });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/artifacts") {
+      send(res, 200, { ok: true, summary: await artifactStore.summary(), artifacts: await artifactStore.list({ limit: Number(url.searchParams.get("limit") || 50), type: url.searchParams.get("type") || undefined }) });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/artifacts") {
+      const body = await readJson(req);
+      send(res, 200, { ok: true, artifact: await artifactStore.create(body) });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/preferences") {
+      send(res, 200, { ok: true, stats: await preferenceStore.stats(), preferences: await preferenceStore.list() });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/preferences") {
+      const body = await readJson(req);
+      send(res, 200, { ok: true, preference: await preferenceStore.set(body) });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/preferences/gc") {
+      const body = await readJson(req);
+      send(res, 200, { ok: true, result: await preferenceStore.garbageCollect(body) });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/repo") {
+      send(res, 200, { ok: true, map: await repoIntelligence.buildMap({ maxFiles: Number(url.searchParams.get("maxFiles") || 500) }) });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/connectors") {
       const body = await readJson(req);
       send(res, 200, { ok: true, connector: await connectorRegistry.addConnector(body) });
@@ -116,7 +263,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/doctor") {
-      send(res, 200, await runDoctor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner }));
+      send(res, 200, await runDoctor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner, preferenceStore, repoIntelligence, feedbackStore, environmentInspector, eventBus, policyStore, workflowStateStore, artifactStore }));
       return;
     }
 
@@ -126,7 +273,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/engine") {
-      send(res, 200, await getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry }));
+      send(res, 200, await getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane }));
       return;
     }
 
@@ -172,6 +319,7 @@ const server = http.createServer(async (req, res) => {
       const result = await agent.handleMessage(body.message, {
         mode: body.mode || "agent",
         privacyLevel: body.privacyLevel || "project",
+        runtimeProfile: body.runtimeProfile || body.depth || "balanced",
         projectRoot,
         sessionId: session.id,
         sessionHistory: session.messages || [],
