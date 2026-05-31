@@ -4,6 +4,7 @@ Jarvis is structured as an AI operating layer rather than a single chatbot.
 
 ```text
 Terminal UX / Web Console / API
+  -> Backend Kernel + Supervisor
   -> Agent Orchestrator
   -> Workflow Engine
   -> Model Router
@@ -23,6 +24,28 @@ Terminal UX / Web Console / API
 The current build is local-first and dependency-free. Hosted LLMs, local model servers, and search providers are optional integrations configured through environment variables.
 
 The API server also serves a web console at `http://localhost:8787` with chat, approvals, memory search, tool inventory, doctor checks, saved sessions, and run history views.
+
+## Backend Kernel
+
+Shared local surfaces now boot through a backend kernel so the API server, terminal chat, doctor script, and docking script construct the same stores, engines, tools, policy layers, eval runner, docking station, agent, and supervisor.
+
+The backend supervisor reports:
+
+- required service readiness
+- degraded optional or configuration-dependent service states
+- dependency topology edges between backend components
+- tool/runtime/store details for debugging wiring issues
+
+Primary surfaces:
+
+```text
+GET /ready
+GET /backend
+/ready
+/backend
+backend.ready
+backend.status
+```
 
 ## Model Routing
 

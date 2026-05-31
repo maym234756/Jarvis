@@ -2,40 +2,13 @@
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { loadEnv, getProviderStatus } from "../../packages/config/env.js";
-import { createAgent } from "../../packages/agent-core/index.js";
-import { createDefaultToolRegistry } from "../../packages/tool-runtime/index.js";
-import { MemoryStore } from "../../packages/memory/index.js";
-import { WorkflowEngine } from "../../packages/workflow-engine/index.js";
-import { ModelRouter } from "../../packages/model-router/index.js";
-import { SessionStore } from "../../packages/session/index.js";
-import { RunStore } from "../../packages/runs/index.js";
+import { createBackendKernel } from "../../packages/backend/index.js";
 import { formatDoctorReport, runDoctor } from "../../packages/diagnostics/index.js";
-import { BackendDockingStation, formatDockReport } from "../../packages/docking/index.js";
-import { DockingStatusTool, DockingTestTool } from "../../packages/tool-runtime/tools/docking-tool.js";
-import { ReasoningEngine } from "../../packages/reasoning/index.js";
-import { SearchEngine } from "../../packages/search/index.js";
+import { formatDockReport } from "../../packages/docking/index.js";
 import { getEngineStatus } from "../../packages/engine/index.js";
-import { MetricsStore } from "../../packages/metrics/index.js";
-import { ConnectorRegistry } from "../../packages/connectors/index.js";
-import { BackendEvalRunner, formatEvalReport } from "../../packages/evals/index.js";
-import { EvalsRunTool } from "../../packages/tool-runtime/tools/evals-tool.js";
-import { PreferenceStore } from "../../packages/preferences/index.js";
-import { RepoIntelligence } from "../../packages/repo-intelligence/index.js";
-import { VerificationEngine } from "../../packages/verification/index.js";
+import { formatEvalReport } from "../../packages/evals/index.js";
 import { listRuntimeProfiles, resolveRuntimeProfile } from "../../packages/runtime/index.js";
-import { CapabilityBus } from "../../packages/capabilities/index.js";
-import { ContextBudgetManager } from "../../packages/context-budget/index.js";
-import { EnvironmentInspector } from "../../packages/environment/index.js";
-import { FeedbackStore } from "../../packages/learning/index.js";
-import { ModelMesh } from "../../packages/model-mesh/index.js";
-import { EventBus } from "../../packages/events/index.js";
-import { PolicyStore } from "../../packages/policy/index.js";
-import { WorkflowStateStore } from "../../packages/workflow-state/index.js";
-import { ArtifactStore } from "../../packages/artifacts/index.js";
-import { AIControlPlane } from "../../packages/control-plane/index.js";
-import { RiskScorer, classifyFailure } from "../../packages/risk/index.js";
-import { PolicyDecisionPoint } from "../../packages/policy/index.js";
-import { RunLedger } from "../../packages/run-ledger/index.js";
+import { classifyFailure } from "../../packages/risk/index.js";
 
 const projectRoot = process.cwd();
 loadEnv({ cwd: projectRoot });
@@ -67,82 +40,39 @@ async function askApproval(request) {
   return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
 }
 
-const memoryStore = new MemoryStore({ projectRoot });
-const sessionStore = new SessionStore({ projectRoot });
-const runStore = new RunStore({ projectRoot });
-const metricsStore = new MetricsStore({ projectRoot });
-const connectorRegistry = new ConnectorRegistry({ projectRoot });
-const preferenceStore = new PreferenceStore({ projectRoot });
-const repoIntelligence = new RepoIntelligence({ projectRoot });
-const verificationEngine = new VerificationEngine();
-const contextBudgetManager = new ContextBudgetManager();
-const environmentInspector = new EnvironmentInspector({ projectRoot });
-const feedbackStore = new FeedbackStore({ projectRoot });
-const modelMesh = new ModelMesh({ feedbackStore });
-const capabilityBus = new CapabilityBus();
-const eventBus = new EventBus({ projectRoot });
-const policyStore = new PolicyStore({ projectRoot });
-const riskScorer = new RiskScorer();
-const policyDecisionPoint = new PolicyDecisionPoint({ policyStore, riskScorer });
-const workflowStateStore = new WorkflowStateStore({ projectRoot });
-const artifactStore = new ArtifactStore({ projectRoot });
-const runLedger = new RunLedger({ projectRoot });
-const modelRouter = new ModelRouter();
-const workflowEngine = new WorkflowEngine();
-const controlPlane = new AIControlPlane({ workflowEngine, modelMesh, contextBudgetManager, capabilityBus, policyStore, riskScorer, policyDecisionPoint });
-const reasoningEngine = new ReasoningEngine();
-const searchEngine = new SearchEngine();
-const toolRegistry = createDefaultToolRegistry({
-  projectRoot,
+const backend = createBackendKernel({ projectRoot, approvalProvider: askApproval, port: Number(process.env.JARVIS_PORT || 8787) });
+const {
   memoryStore,
-  approvalProvider: askApproval,
-  searchEngine,
+  sessionStore,
+  runStore,
   metricsStore,
   connectorRegistry,
   preferenceStore,
   repoIntelligence,
-  capabilityBus,
-  environmentInspector,
+  verificationEngine,
   contextBudgetManager,
+  environmentInspector,
   feedbackStore,
   modelMesh,
-  controlPlane,
+  capabilityBus,
   eventBus,
   policyStore,
-  workflowStateStore,
-  artifactStore,
   riskScorer,
   policyDecisionPoint,
-  runLedger
-});
-capabilityBus.setToolRegistry(toolRegistry);
-controlPlane.setToolRegistry(toolRegistry).setCapabilityBus(capabilityBus);
-const evalRunner = new BackendEvalRunner({ projectRoot, toolRegistry, memoryStore, searchEngine, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger });
-const agent = createAgent({
-  projectRoot,
+  workflowStateStore,
+  artifactStore,
+  runLedger,
   modelRouter,
-  toolRegistry,
-  memoryStore,
   workflowEngine,
-  sessionStore,
-  runStore,
+  controlPlane,
   reasoningEngine,
-  verificationEngine,
-  preferenceStore,
-  contextBudgetManager,
-  feedbackStore,
-  modelMesh,
-  eventBus,
-  workflowStateStore,
-  artifactStore,
-  riskScorer,
-  policyDecisionPoint,
-  runLedger
-});
-const dockingStation = new BackendDockingStation({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, connectorRegistry, evalRunner, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger });
-toolRegistry.register(new DockingStatusTool(dockingStation));
-toolRegistry.register(new DockingTestTool(dockingStation));
-toolRegistry.register(new EvalsRunTool(evalRunner));
+  searchEngine,
+  toolRegistry,
+  evalRunner,
+  dockingStation,
+  agent,
+  backendSupervisor
+} = backend;
 
 function printHelp() {
   console.log(`
@@ -160,6 +90,8 @@ Commands
   /doctor               Run Jarvis diagnostics
   /docks                Show backend docking station
   /dock test <id>       Test one backend dock
+  /backend              Show backend readiness and service topology
+  /ready                Check required backend services
   /engine               Show engine backend status
   /metrics              Show performance metrics
   /evals                Run backend evals
@@ -233,7 +165,7 @@ async function handleSlashCommand(line) {
   }
 
   if (command === "doctor") {
-    const report = await runDoctor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner, preferenceStore, repoIntelligence, feedbackStore, environmentInspector, eventBus, policyStore, workflowStateStore, artifactStore, riskScorer, policyDecisionPoint, runLedger });
+    const report = await runDoctor({ projectRoot, memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner, preferenceStore, repoIntelligence, feedbackStore, environmentInspector, eventBus, policyStore, workflowStateStore, artifactStore, riskScorer, policyDecisionPoint, runLedger, backendSupervisor });
     console.log(formatDoctorReport(report));
     return true;
   }
@@ -253,8 +185,18 @@ async function handleSlashCommand(line) {
     return true;
   }
 
+  if (command === "backend") {
+    console.log(JSON.stringify(await backendSupervisor.report(), null, 2));
+    return true;
+  }
+
+  if (command === "ready") {
+    console.log(JSON.stringify(await backendSupervisor.readiness(), null, 2));
+    return true;
+  }
+
   if (command === "engine") {
-    console.log(JSON.stringify(await getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger }), null, 2));
+    console.log(JSON.stringify(await getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger, backendSupervisor }), null, 2));
     return true;
   }
 

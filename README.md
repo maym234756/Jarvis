@@ -59,6 +59,8 @@ Useful terminal commands:
 /doctor
 /docks
 /dock test memory.local-jsonl
+/backend
+/ready
 /engine
 /metrics
 /evals
@@ -109,6 +111,8 @@ Endpoints:
 
 ```text
 GET  /health
+GET  /ready
+GET  /backend
 GET  /providers
 GET  /tools
 GET  /doctor
@@ -173,6 +177,7 @@ POST /memory/rebuild { "path": "docs" }
 - Python Tkinter chat UX with backend ops shortcuts.
 - Doctor diagnostics, saved sessions, and run history.
 - Backend Docking Station for model, search, memory, tool, session, run, approval, API, and console docks.
+- Backend kernel and supervisor for shared service construction, readiness checks, dependency topology, and wiring reports across API, terminal, doctor, docks, tools, and console.
 - Connector registry for MCP-style backend docks, endpoint health checks, tool filters, and permission policy metadata.
 - Account-aware connector foundation, including a Salesforce read-only connector that uses the authenticated user's object permissions, field-level security, and sharing rules.
 - Reasoning engine with task traits, evidence needs, risk notes, answer contracts, and logic graphs.

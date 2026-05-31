@@ -42,6 +42,7 @@ $("#memorySearch").addEventListener("click", searchMemory);
 $("#memoryStats").addEventListener("click", showMemoryStats);
 $("#memoryCompact").addEventListener("click", compactMemory);
 $("#runDoctor").addEventListener("click", showDoctor);
+$("#showBackend").addEventListener("click", showBackend);
 $("#showEngine").addEventListener("click", showEngine);
 $("#showMetrics").addEventListener("click", showMetrics);
 $("#showEvals").addEventListener("click", showEvals);
@@ -227,6 +228,33 @@ async function showDoctor() {
       <div class="meta">${escapeHtml(report.summary)}</div>
       <pre>${escapeHtml(report.checks.map((item) => `[${item.status.toUpperCase()}] ${item.name}: ${item.message}`).join("\n"))}</pre>
     </div>
+  `;
+}
+
+async function showBackend() {
+  const report = await api("/backend");
+  $("#opsPanel").innerHTML = `
+    <div class="item ${report.ok ? "" : "danger"}">
+      <div class="meta">Backend ${escapeHtml(report.readiness.status)}</div>
+      <pre>${escapeHtml(JSON.stringify(report.summary, null, 2))}</pre>
+    </div>
+    <div class="item">
+      <div class="meta">Topology</div>
+      <pre>${escapeHtml(report.topology.edges.map((edge) => `${edge.from} -> ${edge.to}`).join("\n") || "No dependency edges.")}</pre>
+    </div>
+    ${report.services.map((service) => `
+      <div class="item ${service.health === "error" ? "danger" : service.health === "warn" ? "warn" : ""}">
+        <div class="meta">${escapeHtml(service.health.toUpperCase())} - ${escapeHtml(service.id)} - ${escapeHtml(service.type)}</div>
+        <pre>${escapeHtml(JSON.stringify({
+          status: service.status,
+          required: service.required,
+          message: service.message,
+          dependencies: service.dependencies,
+          capabilities: service.capabilities,
+          details: service.details
+        }, null, 2))}</pre>
+      </div>
+    `).join("")}
   `;
 }
 
@@ -516,7 +544,7 @@ async function init() {
     providers.search.configured ? `Search ${providers.search.provider}` : "Search off",
     providers.openaiEmbeddings.enabled ? `Hosted embeddings ${providers.openaiEmbeddings.model}` : "Local memory"
   ].join(" | ");
-  $("#backendStatus").textContent = `${health.service} online`;
+  $("#backendStatus").textContent = `${health.service} ${health.readiness || "online"}`;
   connectEventStream();
   await refreshTools();
   await refreshDocks();

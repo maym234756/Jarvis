@@ -37,6 +37,11 @@ export class BackendDockingStation {
     this.reportPath = path.join(this.stateDir, "last-report.json");
   }
 
+  setBackendSupervisor(backendSupervisor) {
+    this.backendSupervisor = backendSupervisor;
+    return this;
+  }
+
   async report() {
     const docks = await this.listDocks();
     const summary = summarizeDocks(docks);
@@ -70,6 +75,7 @@ export class BackendDockingStation {
     const workflowStateSummary = this.workflowStateStore ? await this.workflowStateStore.summary() : null;
     const artifactSummary = this.artifactStore ? await this.artifactStore.summary() : null;
     const runLedgerSummary = this.runLedger ? await this.runLedger.summary() : null;
+    const backendReadiness = this.backendSupervisor ? await this.backendSupervisor.readiness() : null;
     const port = Number(process.env.JARVIS_PORT || 8787);
 
     return [
@@ -141,6 +147,16 @@ export class BackendDockingStation {
         status: this.controlPlane ? "online" : "offline",
         health: this.controlPlane ? "ok" : "warn",
         capabilities: ["intent-routing", "workflow-selection", "model-route-preview", "tool-scope", "policy-context", "context-budget"]
+      }),
+      dock({
+        id: "backend.supervisor",
+        name: "Backend Supervisor",
+        type: "core",
+        status: this.backendSupervisor ? backendReadiness.status : "offline",
+        health: this.backendSupervisor ? backendReadiness.ok ? "ok" : "error" : "warn",
+        endpoint: `http://localhost:${port}/backend`,
+        capabilities: ["readiness", "service-topology", "dependency-graph", "wiring-checks"],
+        details: backendReadiness || {}
       }),
       dock({
         id: "events.local-jsonl",
@@ -538,6 +554,7 @@ export class BackendDockingStation {
     if (id === "runtime.profiles") return { ok: true, id, status: target.status, message: `${target.capabilities.length} runtime profile(s) available.` };
     if (id === "runtime.environment") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.os?.platform || "unknown"} environment inspected.` };
     if (id === "control.plane") return { ok: target.health === "ok", id, status: target.status, message: "AI control plane is available." };
+    if (id === "backend.supervisor") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.summary?.requiredReady || 0}/${target.details.summary?.required || 0} required service(s) ready.` };
     if (id === "events.local-jsonl") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.total || 0} event(s) recorded.` };
     if (id === "policy.local-json") return { ok: target.health === "ok", id, status: target.status, message: `Policy ${target.details.configured ? "configured" : "using defaults"}.` };
     if (id === "policy.decision-point") return { ok: target.health === "ok", id, status: target.status, message: `${target.details.decision || "unknown"} sample decision.` };

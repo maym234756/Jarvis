@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getProviderStatus } from "../config/env.js";
 
-export async function runDoctor({ projectRoot = process.cwd(), memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner, preferenceStore, repoIntelligence, feedbackStore, environmentInspector, eventBus, policyStore, workflowStateStore, artifactStore, riskScorer, policyDecisionPoint, runLedger } = {}) {
+export async function runDoctor({ projectRoot = process.cwd(), memoryStore, toolRegistry, runStore, sessionStore, dockingStation, evalRunner, preferenceStore, repoIntelligence, feedbackStore, environmentInspector, eventBus, policyStore, workflowStateStore, artifactStore, riskScorer, policyDecisionPoint, runLedger, backendSupervisor } = {}) {
   const checks = [];
   const providers = getProviderStatus();
 
@@ -90,6 +90,16 @@ export async function runDoctor({ projectRoot = process.cwd(), memoryStore, tool
   if (runLedger) {
     const ledger = await runLedger.summary();
     checks.push(check("Run ledger", true, `${ledger.total} replayable run ledger record(s).`));
+  }
+
+  if (backendSupervisor) {
+    const readiness = await backendSupervisor.readiness();
+    checks.push(check(
+      "Backend supervisor",
+      readiness.ok,
+      `${readiness.status}: ${readiness.summary.requiredReady}/${readiness.summary.required} required service(s) ready, ${readiness.summary.requiredErrors} blocking issue(s).`,
+      readiness.ok ? "ok" : "fail"
+    ));
   }
 
   if (dockingStation) {

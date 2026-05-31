@@ -1,11 +1,12 @@
 import { listRuntimeProfiles } from "../runtime/index.js";
 import { listResponseModes } from "../response/index.js";
 
-export async function getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger } = {}) {
+export async function getEngineStatus({ modelRouter, reasoningEngine, searchEngine, workflowEngine, metricsStore, memoryStore, connectorRegistry, evalRunner, toolRegistry, preferenceStore, repoIntelligence, verificationEngine, contextBudgetManager, environmentInspector, capabilityBus, feedbackStore, modelMesh, eventBus, policyStore, workflowStateStore, artifactStore, controlPlane, riskScorer, policyDecisionPoint, runLedger, backendSupervisor } = {}) {
   const repoMap = repoIntelligence ? await repoIntelligence.buildMap({ maxFiles: 250 }) : null;
   const feedback = feedbackStore ? await feedbackStore.summary() : null;
   return {
     generated_at: new Date().toISOString(),
+    backend: backendSupervisor ? await backendSupervisor.readiness() : null,
     reasoning: {
       available: Boolean(reasoningEngine),
       capabilities: ["task-traits", "evidence-needs", "risk-notes", "answer-contracts", "logic-graph"]

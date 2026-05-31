@@ -49,6 +49,20 @@ npm run docks
 npm run docks -- test tools.registry
 ```
 
+## Check Backend Readiness
+
+```text
+GET http://localhost:8787/ready
+GET http://localhost:8787/backend
+```
+
+Inside terminal chat:
+
+```text
+/ready
+/backend
+```
+
 ## Memory Operations
 
 ```powershell
@@ -66,6 +80,8 @@ Inside terminal chat:
 /doctor
 /docks
 /dock test memory.local-jsonl
+/ready
+/backend
 /engine
 /metrics
 /session new bug hunt
