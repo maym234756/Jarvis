@@ -48,6 +48,7 @@ function printBanner() {
   console.log(`Workspace: ${projectRoot}`);
   console.log(`Providers: ${formatProviderStatus(getProviderStatus())}`);
   console.log(`Runtime: ${runtimeProfileName}`);
+  if (process.env.JARVIS_BACKEND_URL) console.log(`Backend: ${process.env.JARVIS_BACKEND_URL}`);
   if (activeSession) console.log(`Session: ${activeSession.title} (${activeSession.id})`);
   console.log("Type /help for commands or /exit to leave.");
 }
@@ -483,7 +484,9 @@ async function main() {
   printBanner();
 
   while (true) {
-    const line = (await rl.question(`\n${mode}> `)).trim();
+    const answer = await askLine(`\n${mode}> `);
+    if (answer === null) break;
+    const line = answer.trim();
     if (!line) continue;
 
     if (line.startsWith("/")) {
@@ -510,6 +513,15 @@ async function main() {
     for (const result of response.toolResults ?? []) printToolResult(result);
     console.log("");
     console.log(response.answer);
+  }
+}
+
+async function askLine(prompt) {
+  try {
+    return await rl.question(prompt);
+  } catch (error) {
+    if (error?.code === "ERR_USE_AFTER_CLOSE") return null;
+    throw error;
   }
 }
 

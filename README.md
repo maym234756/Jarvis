@@ -10,7 +10,9 @@ This MVP uses only Node.js built-ins, so no package install is required.
 npm run chat
 ```
 
-Open the web console/API:
+This starts a fresh local API/web backend first, then opens the terminal chat. The launcher picks `JARVIS_PORT` or the next available port and prints the backend URL.
+
+Open only the web console/API:
 
 ```powershell
 npm run console
@@ -34,6 +36,8 @@ Then visit:
 ```text
 http://localhost:8787
 ```
+
+If `npm run chat` chooses a different port because `8787` is busy, use the URL printed in the terminal.
 
 Useful terminal commands:
 

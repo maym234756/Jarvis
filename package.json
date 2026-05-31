@@ -5,8 +5,9 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "node apps/terminal-chat/index.js",
-    "chat": "node apps/terminal-chat/index.js",
+    "start": "node scripts/chat-with-backend.js",
+    "chat": "node scripts/chat-with-backend.js",
+    "chat:direct": "node apps/terminal-chat/index.js",
     "api": "node apps/api-server/server.js",
     "console": "node apps/api-server/server.js",
     "doctor": "node scripts/doctor.js",
